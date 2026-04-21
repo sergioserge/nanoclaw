@@ -144,6 +144,12 @@ function buildVolumeMounts(
     '.claude',
   );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
+  // When running as root, make the sessions dir world-writable so the container's
+  // node user (uid 1000) can save transcripts and settings.
+  if (process.getuid?.() === 0) {
+    try { fs.chmodSync(path.join(DATA_DIR, 'sessions', group.folder), 0o777); } catch { /* ignore */ }
+    try { fs.chmodSync(groupSessionsDir, 0o777); } catch { /* ignore */ }
+  }
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
     fs.writeFileSync(
@@ -191,6 +197,14 @@ function buildVolumeMounts(
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  // When running as root, make IPC dirs world-writable so the container's
+  // node user (uid 1000) can create and unlink files inside them.
+  if (process.getuid?.() === 0) {
+    for (const sub of ['messages', 'tasks', 'input']) {
+      try { fs.chmodSync(path.join(groupIpcDir, sub), 0o777); } catch { /* ignore */ }
+    }
+    try { fs.chmodSync(groupIpcDir, 0o777); } catch { /* ignore */ }
+  }
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -272,8 +286,7 @@ async function buildContainerArgs(
   args.push(...hostGatewayArgs());
 
   // Run as host user so bind-mounted files are accessible.
-  // Skip when running as root (uid 0), as the container's node user (uid 1000),
-  // or when getuid is unavailable (native Windows without WSL).
+  // Skip when running as root (uid 0) or uid 1000 (already the container's default node user).
   const hostUid = process.getuid?.();
   const hostGid = process.getgid?.();
   if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {

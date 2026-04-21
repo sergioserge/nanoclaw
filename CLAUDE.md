@@ -78,3 +78,33 @@ systemctl --user restart nanoclaw
 ## Container Build Cache
 
 The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
+
+---
+## Physio Agent — Custom Rules (append to existing CLAUDE.md)
+
+### P1: Session Start
+Every session must begin with the audit in Section 8 of the implementation guide.
+Do not write or modify any skill code until all audit checks pass.
+
+### P2: Calendar Targeting
+- ALWAYS use calendarId from groups/physio-copilot/data/config.json.
+- NEVER use calendarId='primary'.
+- Verfugbar block = hard booking window. No Verfugbar = day unavailable.
+- Recurring event instances are independent. Never modify recurrence rules.
+
+### P3: GDPR Hard Constraints
+- NEVER pass real patient names, addresses, or event descriptions to any LLM.
+- Use patient_mapping table for pseudonymization before any external call.
+- event['description'] is read locally only — never stored, logged, or forwarded.
+
+### P4: Routing Constants (Cologne — Non-Negotiable)
+- All routes: closed loops Home -> Clients -> Home.
+- Bridge penalty: +25 min on Rhine crossings 07:00-09:00 and 16:00-18:30.
+- Flag threshold: > 60 min added daily travel vs. baseline.
+- Cluster rule: deprioritize cross-cluster unless delta < 15 min.
+
+### P5: Fork Discipline
+- Never modify src/ directly. All physio code lives in:
+  .claude/skills/physio-routing/ and groups/physio-copilot/
+- Commit all changes with descriptive messages. Git history = audit log.
+- Before any git push, verify .env is in .gitignore.
