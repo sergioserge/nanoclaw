@@ -98,8 +98,13 @@ def cache_coords(address_hash_or_pid: str, lat: float, lng: float, db_path: str,
 
 # ── Geocoding ─────────────────────────────────────────────────────────────────
 
+COLOGNE_CENTER = (50.9333, 6.9500)  # fallback when no API key
+
+
 def geocode(address: str, maps_api_key: str) -> Optional[tuple[float, float]]:
-    """Geocode address. Returns (lat, lng) or None."""
+    """Geocode address. Returns (lat, lng) or None. Returns None immediately if no API key."""
+    if not maps_api_key:
+        return None
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     r = requests.get(url, params={"address": address, "key": maps_api_key}, timeout=10)
     r.raise_for_status()
@@ -112,13 +117,19 @@ def geocode(address: str, maps_api_key: str) -> Optional[tuple[float, float]]:
 
 # ── Distance Matrix ───────────────────────────────────────────────────────────
 
+DEGRADED_TRAVEL_MIN = 20  # assumed travel time per leg when no API key
+
+
 def travel_time_minutes(
     origin: tuple[float, float],
     destination: tuple[float, float],
     departure_time: datetime,
     maps_api_key: str,
 ) -> int:
-    """Get driving duration in minutes via Distance Matrix API."""
+    """Get driving duration in minutes. Uses fixed estimate in degraded mode (no API key)."""
+    if not maps_api_key:
+        return DEGRADED_TRAVEL_MIN
+
     now = datetime.now()
     if (departure_time - now).total_seconds() < 7200:
         dep_param = "now"
@@ -296,6 +307,8 @@ if __name__ == "__main__":
     window_end   = to_dt(data["window_end"])
     home         = (data["home_coords"]["lat"], data["home_coords"]["lng"])
 
+    degraded = not maps_key
+
     # Pseudonymize + geocode new address
     pid, coords = pseudonymize(data["address"], db_path)
     if not coords:
@@ -306,8 +319,11 @@ if __name__ == "__main__":
             cache_coords(ahash, coords[0], coords[1], db_path)
 
     if not coords:
-        print(json.dumps({"error": f"Could not geocode address (id={pid})"}))
-        sys.exit(1)
+        if degraded:
+            coords = COLOGNE_CENTER  # no geocoding in degraded mode — use city center
+        else:
+            print(json.dumps({"error": f"Could not geocode address (id={pid})"}))
+            sys.exit(1)
 
     # Build stops list
     stops = []
@@ -319,6 +335,8 @@ if __name__ == "__main__":
             scoords = geocode(s["location"], maps_key)
             if scoords:
                 cache_coords(ahash, scoords[0], scoords[1], db_path)
+        if not scoords and degraded:
+            scoords = COLOGNE_CENTER
         if scoords:
             stops.append({
                 "coords": scoords,
@@ -340,4 +358,5 @@ if __name__ == "__main__":
             "flag":          slot["flag"],
         })
 
-    print(json.dumps(result, ensure_ascii=False))
+    output = {"slots": result, "degraded": degraded}
+    print(json.dumps(output, ensure_ascii=False))

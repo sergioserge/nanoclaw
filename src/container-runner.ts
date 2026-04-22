@@ -147,8 +147,16 @@ function buildVolumeMounts(
   // When running as root, make the sessions dir world-writable so the container's
   // node user (uid 1000) can save transcripts and settings.
   if (process.getuid?.() === 0) {
-    try { fs.chmodSync(path.join(DATA_DIR, 'sessions', group.folder), 0o777); } catch { /* ignore */ }
-    try { fs.chmodSync(groupSessionsDir, 0o777); } catch { /* ignore */ }
+    try {
+      fs.chmodSync(path.join(DATA_DIR, 'sessions', group.folder), 0o777);
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.chmodSync(groupSessionsDir, 0o777);
+    } catch {
+      /* ignore */
+    }
   }
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
@@ -201,9 +209,17 @@ function buildVolumeMounts(
   // node user (uid 1000) can create and unlink files inside them.
   if (process.getuid?.() === 0) {
     for (const sub of ['messages', 'tasks', 'input']) {
-      try { fs.chmodSync(path.join(groupIpcDir, sub), 0o777); } catch { /* ignore */ }
+      try {
+        fs.chmodSync(path.join(groupIpcDir, sub), 0o777);
+      } catch {
+        /* ignore */
+      }
     }
-    try { fs.chmodSync(groupIpcDir, 0o777); } catch { /* ignore */ }
+    try {
+      fs.chmodSync(groupIpcDir, 0o777);
+    } catch {
+      /* ignore */
+    }
   }
   mounts.push({
     hostPath: groupIpcDir,
