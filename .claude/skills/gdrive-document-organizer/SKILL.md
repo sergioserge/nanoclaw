@@ -46,16 +46,17 @@ Files over 20 MB: warn the co-pilot before downloading. Do not process silently.
 ## Folder Structure (Google Drive)
 
 ```
-Praxis-Dokumente/          ← rootFolderId in config.json
-├── Eingang/               ← inboxFolderId — new files land here
-├── Rechnungen/            ← bills and invoices
+Document Organizer/
+├── Inbox/                 ← inboxFolderId — new files land here
+├── Eingangsrechnungen/    ← bills received (you pay)
+├── Ausgangsrechnungen/    ← invoices sent (clients/insurance pay)
 ├── Krankenkasse/          ← insurance correspondence
 ├── Steuer/                ← tax documents
 ├── Verträge/              ← contracts
-└── Sonstiges/             ← unclassified
+└── Sonstiges/             ← unclassifiable
 ```
 
-Folder IDs are resolved by name at runtime — do not hard-code them in the skill.
+Category folder IDs are defined in `config.json` under `categories`. The AI must only pick from this list — it never creates new folders. If a file cannot be classified into any existing category, leave it in the inbox and flag it in the report with a suggested new category name. New folders are added manually by the operator.
 
 ## Workflow: Organize Inbox
 
@@ -81,7 +82,7 @@ Returns: `{"status": "ok", "text": "..."}` or `{"status": "scanned_pdf"}` / `{"s
 
 **Classify (Bob's job — not organizer.py):**
 After receiving the extracted text, Bob classifies the document and determines:
-- `category`: one of `Rechnungen`, `Krankenkasse`, `Steuer`, `Verträge`, `Sonstiges`
+- `category`: one of `Eingangsrechnungen`, `Ausgangsrechnungen`, `Krankenkasse`, `Steuer`, `Verträge`, `Sonstiges`
 - `summary`: 1–2 sentence description
 - `key_fields`: structured data relevant to the document type (e.g. `{"amount": "€240", "date": "2025-03-15", "sender": "AOK Bayern"}`)
 - `tags`: 3–5 keywords for future search (e.g. `["AOK", "2025", "Rechnung"]`)
