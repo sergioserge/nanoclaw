@@ -4,10 +4,14 @@ Drive document organizer. Called by Bob via subprocess with a JSON argument.
 Returns JSON to stdout.
 
 Actions:
-  list_inbox     — list files in the inbox folder
-  extract_text   — download a file and extract its text
-  move_file      — move file to category subfolder and index it
-  search         — query the document index
+  setup_drive       — create default folder structure and write config.json (run once)
+  list_folders      — list current category folders from Drive (live, excludes Inbox/Unsortiert)
+  ensure_unsortiert — verify Unsortiert exists; recreate under rootFolderId if deleted
+  list_inbox        — list files in the inbox folder
+  extract_text      — download a file and extract its text
+  move_file         — move file to a category folder (by folder_id) and index it
+  move_unsortiert   — move file to Unsortiert folder
+  search            — query the document index
 
 Usage:
   python3 organizer.py '<json_input>'
@@ -16,12 +20,34 @@ Usage:
 import sys
 import json
 import io
-import os
 import sqlite3
 from pathlib import Path
 
 DATA_DIR = '/workspace/group/data'
 
+DEFAULT_CATEGORY_FOLDERS = [
+    'Eingangsrechnungen',
+    'Ausgangsrechnungen',
+    'Krankenkasse',
+    'Steuer',
+    'Verträge',
+    'Sonstiges',
+]
+
+
+# ── Config helpers ────────────────────────────────────────────────────────────
+
+def _load_config(data_dir):
+    with open(f'{data_dir}/config.json') as f:
+        return json.load(f)
+
+
+def _save_config(data_dir, config):
+    with open(f'{data_dir}/config.json', 'w') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+# ── Drive helpers ─────────────────────────────────────────────────────────────
 
 def load_drive_service(data_dir):
     from google.oauth2.credentials import Credentials
@@ -40,12 +66,38 @@ def load_drive_service(data_dir):
     return build('drive', 'v3', credentials=creds)
 
 
-def resolve_category_folder(config, category):
-    categories = config.get('categories', {})
-    if category not in categories:
-        valid = list(categories.keys())
-        raise ValueError(f"Unknown category '{category}'. Valid: {valid}")
-    return categories[category]
+def _create_folder(service, name, parent_id):
+    """Create a Drive folder under parent_id. Returns the new folder ID."""
+    metadata = {
+        'name': name,
+        'mimeType': 'application/vnd.google-apps.folder',
+        'parents': [parent_id],
+    }
+    return service.files().create(body=metadata, fields='id').execute()['id']
+
+
+def _folder_exists(service, folder_id):
+    """Return True if the folder exists in Drive and is not trashed."""
+    try:
+        f = service.files().get(fileId=folder_id, fields='id,trashed').execute()
+        return not f.get('trashed', False)
+    except Exception:
+        return False
+
+
+def _get_root_id(service, config, data_dir):
+    """
+    Return rootFolderId. If absent from config, discover it by reading the
+    parent of inboxFolderId and persist it to config.json (one-time migration).
+    """
+    root_id = config.get('rootFolderId')
+    if root_id:
+        return root_id
+    f = service.files().get(fileId=config['inboxFolderId'], fields='parents').execute()
+    root_id = f['parents'][0]
+    config['rootFolderId'] = root_id
+    _save_config(data_dir, config)
+    return root_id
 
 
 def _move_in_drive(service, file_id, from_folder_id, to_folder_id):
@@ -55,6 +107,84 @@ def _move_in_drive(service, file_id, from_folder_id, to_folder_id):
         removeParents=from_folder_id,
         fields='id, parents',
     ).execute()
+
+
+# ── Actions ───────────────────────────────────────────────────────────────────
+
+def setup_drive(inp, data_dir):
+    """
+    Create the complete folder structure in Drive and write a fresh config.json.
+    Run once per new installation. Safe to re-run — creates new folders each time,
+    so only call it when setting up from scratch.
+    """
+    service = load_drive_service(data_dir)
+    root_name = inp.get('root_name', 'Document Organizer')
+    timezone = inp.get('timezone', 'Europe/Berlin')
+
+    root_id = _create_folder(service, root_name, 'root')
+    inbox_id = _create_folder(service, 'Inbox', root_id)
+    unsortiert_id = _create_folder(service, 'Unsortiert', root_id)
+
+    for name in DEFAULT_CATEGORY_FOLDERS:
+        _create_folder(service, name, root_id)
+
+    config = {
+        'rootFolderId': root_id,
+        'inboxFolderId': inbox_id,
+        'unsortiertFolderId': unsortiert_id,
+        'timezone': timezone,
+        'maxFileSizeBytes': 20 * 1024 * 1024,
+    }
+    _save_config(data_dir, config)
+    return {'status': 'ok', 'root_name': root_name, 'config': config}
+
+
+def list_folders(inp, data_dir):
+    """
+    List current category folders under rootFolderId.
+    Excludes Inbox and Unsortiert. Always reads live from Drive.
+    """
+    service = load_drive_service(data_dir)
+    config = _load_config(data_dir)
+    root_id = _get_root_id(service, config, data_dir)
+
+    excluded = {config['inboxFolderId'], config.get('unsortiertFolderId', '')}
+
+    resp = service.files().list(
+        q=(
+            f"'{root_id}' in parents"
+            " and mimeType='application/vnd.google-apps.folder'"
+            " and trashed=false"
+        ),
+        fields='files(id, name)',
+        orderBy='name',
+    ).execute()
+
+    folders = [
+        {'id': f['id'], 'name': f['name']}
+        for f in resp.get('files', [])
+        if f['id'] not in excluded
+    ]
+    return {'folders': folders}
+
+
+def ensure_unsortiert(inp, data_dir):
+    """
+    Verify the Unsortiert folder still exists in Drive.
+    If it was deleted, recreate it under rootFolderId and update config.json.
+    """
+    service = load_drive_service(data_dir)
+    config = _load_config(data_dir)
+    unsortiert_id = config.get('unsortiertFolderId')
+
+    if unsortiert_id and _folder_exists(service, unsortiert_id):
+        return {'folder_id': unsortiert_id, 'created': False}
+
+    root_id = _get_root_id(service, config, data_dir)
+    new_id = _create_folder(service, 'Unsortiert', root_id)
+    config['unsortiertFolderId'] = new_id
+    _save_config(data_dir, config)
+    return {'folder_id': new_id, 'created': True}
 
 
 def list_inbox(inp, data_dir):
@@ -104,7 +234,7 @@ def extract_text(inp, data_dir):
             text = '\n'.join(page.get_text() for page in doc)
             if not text.strip():
                 return {'status': 'scanned_pdf', 'text': None}
-            return {'status': 'ok', 'text': text[:8000]}  # cap for LLM context
+            return {'status': 'ok', 'text': text[:8000]}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
@@ -142,19 +272,24 @@ def extract_text(inp, data_dir):
 
 
 def move_file(inp, data_dir):
+    """
+    Move a file from Inbox to a category folder and index it in documents.db.
+    folder_id and folder_name come from the list_folders response — not from
+    a hardcoded config list.
+    """
     with open(f'{data_dir}/config.json') as f:
         config = json.load(f)
     service = load_drive_service(data_dir)
 
     file_id = inp['file_id']
     file_name = inp['file_name']
-    category = inp['category']
+    folder_id = inp['folder_id']
+    folder_name = inp['folder_name']
     summary = inp.get('summary', '')
     key_fields = inp.get('key_fields', {})
     tags = inp.get('tags', [])
 
-    target_folder_id = resolve_category_folder(config, category)
-    _move_in_drive(service, file_id, config['inboxFolderId'], target_folder_id)
+    _move_in_drive(service, file_id, config['inboxFolderId'], folder_id)
 
     db_path = f'{data_dir}/documents.db'
     conn = sqlite3.connect(db_path)
@@ -169,14 +304,14 @@ def move_file(inp, data_dir):
     )''')
     conn.execute(
         "INSERT OR REPLACE INTO documents VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-        (file_id, file_name, category, summary,
+        (file_id, file_name, folder_name, summary,
          json.dumps(key_fields, ensure_ascii=False),
          json.dumps(tags, ensure_ascii=False))
     )
     conn.commit()
     conn.close()
 
-    return {'status': 'ok', 'file_id': file_id, 'moved_to': category}
+    return {'status': 'ok', 'file_id': file_id, 'moved_to': folder_name}
 
 
 def move_unsortiert(inp, data_dir):
@@ -189,7 +324,7 @@ def move_unsortiert(inp, data_dir):
 
     unsortiert_id = config.get('unsortiertFolderId')
     if not unsortiert_id:
-        return {'status': 'error', 'error': 'unsortiertFolderId not set in config.json'}
+        return {'status': 'error', 'error': 'unsortiertFolderId not set — run ensure_unsortiert first'}
 
     _move_in_drive(service, file_id, config['inboxFolderId'], unsortiert_id)
     return {'status': 'ok', 'file_id': file_id, 'moved_to': 'Unsortiert', 'reason': reason}
@@ -226,11 +361,14 @@ def main():
     action = inp.get('action')
 
     dispatch = {
-        'list_inbox':       list_inbox,
-        'extract_text':     extract_text,
-        'move_file':        move_file,
-        'move_unsortiert':  move_unsortiert,
-        'search':           search,
+        'setup_drive':       setup_drive,
+        'list_folders':      list_folders,
+        'ensure_unsortiert': ensure_unsortiert,
+        'list_inbox':        list_inbox,
+        'extract_text':      extract_text,
+        'move_file':         move_file,
+        'move_unsortiert':   move_unsortiert,
+        'search':            search,
     }
 
     if action not in dispatch:

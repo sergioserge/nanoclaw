@@ -11,15 +11,27 @@ Operational skill for the `whatsapp_document_organizer` group.
 
 All files live at `/workspace/group/data/`:
 - `credentials.json` — Google OAuth client credentials (same GCP project as Calendar)
-- `token.json` — OAuth token with both Calendar and Drive scopes
-- `config.json` — `inboxFolderId`, `rootFolderId`, `timezone`
+- `token.json` — OAuth token with Drive scope
+- `config.json` — `rootFolderId`, `inboxFolderId`, `unsortiertFolderId`, `timezone`, `maxFileSizeBytes`
 - `documents.db` — SQLite document index (search metadata)
 
-Required OAuth scopes (both must be present in token):
-- `https://www.googleapis.com/auth/calendar`
+Required OAuth scope:
 - `https://www.googleapis.com/auth/drive`
 
 Google Maps API key is not used by this skill.
+
+## Initial Setup (run once per installation)
+
+Creates the "Document Organizer" root folder in Drive with default subfolders, and writes `config.json`:
+
+```bash
+python3 /workspace/project/.claude/skills/gdrive-document-organizer/organizer.py \
+  '{"action": "setup_drive"}'
+```
+
+Default subfolders created: Inbox, Unsortiert, Eingangsrechnungen, Ausgangsrechnungen, Krankenkasse, Steuer, Verträge, Sonstiges.
+
+The user can rename, add, or delete category folders in Drive at any time — Bob always reads the live folder list at sort time. Only `rootFolderId` and `inboxFolderId` are fixed after setup.
 
 ## Trigger
 
@@ -46,17 +58,13 @@ Files over 20 MB: warn the co-pilot before downloading. Do not process silently.
 ## Folder Structure (Google Drive)
 
 ```
-Document Organizer/
+Document Organizer/        ← rootFolderId
 ├── Inbox/                 ← inboxFolderId — new files land here
-├── Eingangsrechnungen/    ← bills received (you pay)
-├── Ausgangsrechnungen/    ← invoices sent (clients/insurance pay)
-├── Krankenkasse/          ← insurance correspondence
-├── Steuer/                ← tax documents
-├── Verträge/              ← contracts
-└── Sonstiges/             ← unclassifiable
+├── Unsortiert/            ← unsortiertFolderId — unreadable/unclassifiable files
+└── [category folders]/    ← whatever the user has created in Drive
 ```
 
-Category folder IDs are defined in `config.json` under `categories`. The AI must only pick from this list — it never creates new folders. If a file cannot be classified into any existing category, leave it in the inbox and flag it in the report with a suggested new category name. New folders are added manually by the operator.
+Category folders are read live from Drive at sort time via `list_folders`. The user can rename, add, or delete category folders freely — Bob always works with what actually exists. Bob never creates new category folders; if a file doesn't fit any existing folder, it goes to Unsortiert with a note suggesting a new folder name.
 
 ## Hard Rules (Non-Negotiable)
 
@@ -74,7 +82,27 @@ All Drive operations go through `organizer.py`. Call it via subprocess only:
 python3 /workspace/project/.claude/skills/gdrive-document-organizer/organizer.py '<json_input>'
 ```
 
-### Step 1 — List inbox (mandatory first action)
+### Step 1 — Ensure Unsortiert exists
+
+```json
+{"action": "ensure_unsortiert"}
+```
+
+Returns: `{"folder_id": "...", "created": false}`
+
+If `created` is true, note it in the report. This step is mandatory — Unsortiert must exist before any processing begins.
+
+### Step 2 — Get current category folders (live from Drive)
+
+```json
+{"action": "list_folders"}
+```
+
+Returns: `{"folders": [{"id": "...", "name": "Eingangsrechnungen"}, ...]}`
+
+This is the complete list of valid move targets for this sort run. It reflects whatever folders the user currently has in Drive.
+
+### Step 3 — List inbox (mandatory before processing any file)
 
 ```json
 {"action": "list_inbox"}
@@ -84,40 +112,41 @@ Returns: `{"files": [...], "count": N}`
 
 **If `count == 0`:** Reply "Posteingang ist leer — keine neuen Dokumente." and STOP. Do not look at any other folder. Do not inspect `documents.db`. Do not do anything else.
 
-**If `count > 0`:** Proceed to Step 2 with the exact list of files returned. The returned list is the complete work queue — do not add files from any other source.
+**If `count > 0`:** Proceed with the exact list returned. This is the complete work queue — do not add files from any other source.
 
-### Step 2 — For each file: extract text
+### Step 4 — For each file: extract text
 
 ```json
 {"action": "extract_text", "file_id": "...", "mime_type": "application/pdf", "size_bytes": 102400}
 ```
 
 Returns one of:
-- `{"status": "ok", "text": "..."}` → proceed to Step 3
-- `{"status": "scanned_pdf"}` → skip, add to skipped list
-- `{"status": "too_large"}` → skip, warn co-pilot
-- `{"status": "unsupported"}` → skip, add to skipped list
+- `{"status": "ok", "text": "..."}` → proceed to Step 5
+- `{"status": "scanned_pdf"}` → call `move_unsortiert` with `reason: "scanned_pdf"`
+- `{"status": "too_large"}` → call `move_unsortiert` with `reason: "too_large"`
+- `{"status": "unsupported"}` → call `move_unsortiert` with `reason: "unsupported"`
 
-### Step 3 — Classify (Bob's job — no organizer.py action)
+### Step 5 — Classify (Bob's job — no organizer.py action)
 
-From the extracted text, determine:
-- `category`: one of `Eingangsrechnungen`, `Ausgangsrechnungen`, `Krankenkasse`, `Steuer`, `Verträge`, `Sonstiges`
+Pick the best matching folder from the Step 2 list by name. Determine:
+- `folder_id` and `folder_name`: from the Step 2 list
 - `summary`: 1–2 sentence description
 - `key_fields`: structured metadata (e.g. `{"amount": "€240", "date": "2025-03-15", "sender": "AOK Bayern"}`)
 - `tags`: 3–5 keywords for future search
 
 The goal is LLM-retrievable metadata: a future query like "find 2025 tax documents" must resolve without re-reading the files.
 
-If a file cannot be classified, use `Sonstiges` — never leave a classifiable file in the inbox because classification was uncertain.
+If no existing folder fits, call `move_unsortiert` and mention the suggested new folder name in the report. Never leave a file in the inbox because classification was uncertain.
 
-### Step 4 — Move file and index it
+### Step 6 — Move file and index it
 
 ```json
 {
   "action": "move_file",
   "file_id": "...",
   "file_name": "AOK_Rechnung_März.pdf",
-  "category": "Eingangsrechnungen",
+  "folder_id": "<id from list_folders>",
+  "folder_name": "Eingangsrechnungen",
   "summary": "AOK invoice for March 2025, €240",
   "key_fields": {"amount": "€240", "date": "2025-03-15", "sender": "AOK Bayern"},
   "tags": ["AOK", "2025", "Rechnung", "März"]
@@ -126,20 +155,24 @@ If a file cannot be classified, use `Sonstiges` — never leave a classifiable f
 
 Returns: `{"status": "ok", "moved_to": "Eingangsrechnungen"}`
 
-Repeat Steps 2–4 for every file in the Step 1 list.
+For files going to Unsortiert:
 
-### Step 5 — Verify inbox is empty
+```json
+{"action": "move_unsortiert", "file_id": "...", "reason": "scanned_pdf"}
+```
 
-After processing all files, call `list_inbox` again:
+Repeat Steps 4–6 for every file in the Step 3 list.
+
+### Step 7 — Verify inbox is empty
 
 ```json
 {"action": "list_inbox"}
 ```
 
-- If `count == 0`: success, proceed to Step 6.
-- If `count > 0`: something was missed. Report the remaining files by name in the summary with a warning. Do not silently ignore them.
+- If `count == 0`: success, proceed to Step 8.
+- If `count > 0`: something was missed. Report remaining file names with a warning.
 
-### Step 6 — Report back
+### Step 8 — Report back
 
 ```
 📁 3 Dokumente sortiert:
@@ -148,7 +181,9 @@ After processing all files, call `list_inbox` again:
 • Steuervorauszahlung_Q1.pdf → Steuer (€1.200, Q1 2025)
 • Vertrag_Musterstraße.docx → Verträge
 
-⚠ 1 Dokument übersprungen: Scan_unlesbar.pdf (gescanntes PDF, kein Text erkennbar)
+⚠ 1 Dokument nach Unsortiert verschoben: Scan_unlesbar.pdf (gescanntes PDF)
+
+💡 Vorschlag neuer Ordner: "Fortbildung" (1 Dokument passt nirgends)
 ```
 
 ## Workflow: Search Documents
