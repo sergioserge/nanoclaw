@@ -83,8 +83,7 @@ The container buildkit caches the build context aggressively. `--no-cache` alone
 ## Physio Agent — Custom Rules (append to existing CLAUDE.md)
 
 ### P1: Session Start
-Every session must begin with the audit in Section 8 of the implementation guide.
-Do not write or modify any skill code until all audit checks pass.
+Before writing or modifying any physio skill code, verify: routing.py runs without import errors, physio.db is accessible and the patient_mapping table exists, config.json has a non-placeholder calendarId and real homeCoords, and .env contains GOOGLE_MAPS_API_KEY.
 
 ### P2: Calendar Targeting
 - ALWAYS use calendarId from groups/whatsapp_physio_assistant/data/config.json.

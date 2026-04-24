@@ -82,6 +82,11 @@ The client must be available to approve the Google login (2FA) — this can be d
   ```bash
   pip3 install --quiet google-auth google-api-python-client
   ```
+- [ ] Copy oauth_flow.py from dev to prd (not in git — must be copied manually):
+  ```bash
+  cp groups/whatsapp_physio_assistant/data/oauth_flow.py \
+     groups/whatsapp_physio_assistant_prd/data/oauth_flow.py
+  ```
 - [ ] Upload client credentials to VPS:
   ```bash
   scp /path/to/credentials.json \

@@ -100,6 +100,8 @@ EOF
 ```bash
 cp groups/whatsapp_physio_assistant/data/physio.db \
    groups/whatsapp_physio_assistant_prd/data/physio.db
+chown nanoclaw:nanoclaw groups/whatsapp_physio_assistant_prd/data/physio.db
+chmod 600 groups/whatsapp_physio_assistant_prd/data/physio.db
 ```
 
 **5. Create a WhatsApp group for the client co-pilot and find its JID:**

@@ -94,12 +94,18 @@ for e in events:
     # Extract only what routing needs — never touch e['description']
     location = e.get('location', '')
     if location:
+        # Calendar API returns full ISO datetimes; routing.py expects "HH:MM"
         stops.append({
             'name':     e.get('summary', ''),   # patient name — for display only
             'location': location,
-            'start': e['start']['dateTime'],
-            'end':   e['end']['dateTime'],
+            'start': e['start']['dateTime'][11:16],  # e.g. "2026-04-22T09:00:00+02:00" → "09:00"
+            'end':   e['end']['dateTime'][11:16],
         })
+```
+Also extract window times as HH:MM:
+```python
+window_start = verfuegbar[0]['start']['dateTime'][11:16]
+window_end   = verfuegbar[0]['end']['dateTime'][11:16]
 ```
 
 ### 6. Calculate route delta
