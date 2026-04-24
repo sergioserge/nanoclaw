@@ -27,7 +27,8 @@ def load_drive_service(data_dir):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    token = json.load(open(f'{data_dir}/token.json'))
+    with open(f'{data_dir}/token.json') as f:
+        token = json.load(f)
     creds = Credentials(
         token=token['token'],
         refresh_token=token['refresh_token'],
@@ -57,18 +58,33 @@ def _move_in_drive(service, file_id, from_folder_id, to_folder_id):
 
 
 def list_inbox(inp, data_dir):
-    config = json.load(open(f'{data_dir}/config.json'))
+    with open(f'{data_dir}/config.json') as f:
+        config = json.load(f)
     service = load_drive_service(data_dir)
-    files = service.files().list(
-        q=f"'{config['inboxFolderId']}' in parents and trashed=false",
-        fields='files(id, name, mimeType, size)',
-        orderBy='createdTime',
-    ).execute().get('files', [])
+
+    files = []
+    page_token = None
+    while True:
+        kwargs = dict(
+            q=f"'{config['inboxFolderId']}' in parents and trashed=false",
+            fields='nextPageToken, files(id, name, mimeType, size)',
+            orderBy='createdTime',
+            pageSize=100,
+        )
+        if page_token:
+            kwargs['pageToken'] = page_token
+        resp = service.files().list(**kwargs).execute()
+        files.extend(resp.get('files', []))
+        page_token = resp.get('nextPageToken')
+        if not page_token:
+            break
+
     return {'files': files, 'count': len(files)}
 
 
 def extract_text(inp, data_dir):
-    config = json.load(open(f'{data_dir}/config.json'))
+    with open(f'{data_dir}/config.json') as f:
+        config = json.load(f)
     service = load_drive_service(data_dir)
 
     file_id = inp['file_id']
@@ -126,7 +142,8 @@ def extract_text(inp, data_dir):
 
 
 def move_file(inp, data_dir):
-    config = json.load(open(f'{data_dir}/config.json'))
+    with open(f'{data_dir}/config.json') as f:
+        config = json.load(f)
     service = load_drive_service(data_dir)
 
     file_id = inp['file_id']
@@ -163,15 +180,16 @@ def move_file(inp, data_dir):
 
 
 def move_unsortiert(inp, data_dir):
-    config = json.load(open(f'{data_dir}/config.json'))
+    with open(f'{data_dir}/config.json') as f:
+        config = json.load(f)
     service = load_drive_service(data_dir)
 
     file_id = inp['file_id']
     reason = inp.get('reason', 'unknown')
 
-    unsortiert_id = config.get('unssortiertFolderId')
+    unsortiert_id = config.get('unsortiertFolderId')
     if not unsortiert_id:
-        return {'status': 'error', 'error': 'unssortiertFolderId not set in config.json'}
+        return {'status': 'error', 'error': 'unsortiertFolderId not set in config.json'}
 
     _move_in_drive(service, file_id, config['inboxFolderId'], unsortiert_id)
     return {'status': 'ok', 'file_id': file_id, 'moved_to': 'Unsortiert', 'reason': reason}
