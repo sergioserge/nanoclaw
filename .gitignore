@@ -27,6 +27,13 @@ token.json
 # Temp files
 .tmp-*
 
+# Python
+__pycache__/
+*.pyc
+
+# Local backups
+backups/
+
 # OS
 .DS_Store
 
