@@ -18,6 +18,18 @@ Three phases. Only Phase 2 requires physical presence (WhatsApp QR scan). Phases
 
 Do these before meeting the client. If anything here isn't done, the in-person session cannot proceed.
 
+### 1.0 Sergej: Back Up Dev Credentials
+
+Do this first, before anything else changes on the VPS.
+
+```bash
+cd /root/nanoclaw
+cp groups/whatsapp_physio_assistant/data/credentials.json \
+   groups/whatsapp_physio_assistant/data/credentials.dev.json
+cp groups/whatsapp_physio_assistant/data/token.json \
+   groups/whatsapp_physio_assistant/data/token.dev.json
+```
+
 ### 1.1 Client: Claude Subscription + Token
 
 - [ ] Client has an active Claude.ai subscription
@@ -40,14 +52,6 @@ The client does this independently, or guided via screen share. They need to be 
 
 The client must be available to approve the Google login (2FA) — this can be done via screen share.
 
-- [ ] Back up dev credentials first:
-  ```bash
-  cd /root/nanoclaw
-  cp groups/whatsapp_physio_assistant/data/credentials.json \
-     groups/whatsapp_physio_assistant/data/credentials.dev.json
-  cp groups/whatsapp_physio_assistant/data/token.json \
-     groups/whatsapp_physio_assistant/data/token.dev.json
-  ```
 - [ ] Upload client credentials to VPS:
   ```bash
   scp /path/to/credentials.json \
@@ -82,18 +86,20 @@ for c in service.calendarList().list().execute()['items']:
     print(c['id'], '|', c['summary'])
 "
   ```
-- [ ] Write the calendarId into prd config:
+- [ ] Write the calendarId and therapist's home address into prd config:
   ```bash
   python3 -c "
 import json
 path = '/root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/config.json'
 with open(path) as f: cfg = json.load(f)
 cfg['calendarId'] = 'PASTE_CALENDAR_ID_HERE'
+cfg['homeCoords'] = {'lat': PASTE_LAT, 'lng': PASTE_LNG}  # geocode the therapist's actual home address
 cfg.pop('note', None)
 with open(path, 'w') as f: json.dump(cfg, f, indent=2)
-print('Updated:', cfg['calendarId'])
+print('Updated:', cfg['calendarId'], cfg['homeCoords'])
 "
   ```
+  *(Get the lat/lng from maps.google.com or geocode the address. The current placeholder is Cologne city center — routing is wrong until this is set.)*
 - [ ] Verify Calendar API:
   ```bash
   python3 -c "
@@ -118,10 +124,10 @@ print('OK:', result['summary'])
   ```
 
 ✓ **Phase 1 gate — verify before the in-person session:**
+- Dev backup files (`credentials.dev.json`, `token.dev.json`) present in dev data dir
 - `token.json` present in prd data dir
 - Calendar API returns `OK: <calendar name>`
-- Prd `config.json` has no `note` field
-- Dev backup files (`credentials.dev.json`, `token.dev.json`) present
+- Prd `config.json` has no `note` field, correct `calendarId`, and real `homeCoords` (not `50.9333, 6.9500`)
 
 ---
 
