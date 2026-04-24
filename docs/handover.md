@@ -52,6 +52,10 @@ The client does this independently, or guided via screen share. They need to be 
 
 The client must be available to approve the Google login (2FA) — this can be done via screen share.
 
+- [ ] Install Google API packages if not present (needed by oauth_flow.py):
+  ```bash
+  pip3 install --quiet google-auth google-api-python-client
+  ```
 - [ ] Upload client credentials to VPS:
   ```bash
   scp /path/to/credentials.json \
@@ -69,10 +73,6 @@ The client must be available to approve the Google login (2FA) — this can be d
 - [ ] Verify token was written:
   ```bash
   ls -la /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/token.json
-  ```
-- [ ] Install Google API packages if not present:
-  ```bash
-  pip3 install --quiet google-auth google-api-python-client
   ```
 - [ ] Find the client's calendarId:
   ```bash
@@ -180,9 +180,30 @@ After linking, the client's groups sync into the DB. Have the client send any me
 
 ## Phase 3 — Document Organizer (Separate Session, When Feature Goes Live)
 
-This is a separate activation, not part of the main handover. Can be done remotely. Requires Phase 1 to be complete (token already has Drive scope).
+This is a separate activation, not part of the main handover. Can be done remotely. Requires Phase 1 and Phase 2 to be complete.
 
-### 3.1 Copy Token to Document Organizer Group
+### 3.1 Register the Document Organizer WhatsApp Group
+
+The document organizer uses a separate WhatsApp group (e.g. the client's "My Office" or equivalent). After the Phase 2 phone swap, the old JID in the DB belongs to Sergej's WhatsApp and is no longer valid. Re-register it with the correct JID from the client's phone.
+
+- [ ] Have the client send a message in their document organizer group
+- [ ] Find the JID:
+  ```bash
+  sqlite3 /root/nanoclaw/store/messages.db \
+    "SELECT jid, name FROM chats WHERE jid LIKE '%@g.us' ORDER BY last_message_time DESC LIMIT 5;"
+  ```
+- [ ] Update the registered group:
+  ```bash
+  sqlite3 /root/nanoclaw/store/messages.db \
+    "INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, requires_trigger)
+     VALUES ('<JID>', 'Document Organizer', 'document_organizer', '@Bob', datetime('now'), 0);"
+  ```
+- [ ] Restart NanoClaw:
+  ```bash
+  systemctl restart nanoclaw
+  ```
+
+### 3.2 Copy Token to Document Organizer Group
 
 ```bash
 cp /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/token.json \
