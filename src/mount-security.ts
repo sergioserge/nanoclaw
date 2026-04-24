@@ -384,6 +384,11 @@ export function validateAdditionalMounts(
   return validatedMounts;
 }
 
+export function _resetAllowlistCacheForTests(): void {
+  cachedAllowlist = null;
+  allowlistLoadError = null;
+}
+
 /**
  * Generate a template allowlist file for users to customize
  */
