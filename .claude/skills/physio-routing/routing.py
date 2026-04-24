@@ -10,6 +10,9 @@ import sys
 from datetime import datetime, timedelta
 from typing import Optional
 
+import hashlib
+import math
+
 import requests
 
 # ── Constants (Cologne deployment — do not make configurable) ─────────────────
@@ -60,7 +63,6 @@ def get_db(db_path: str) -> sqlite3.Connection:
 
 def pseudonymize(address: str, db_path: str) -> tuple[str, Optional[tuple[float, float]]]:
     """Return (patient_id, cached_coords). Never logs real address."""
-    import hashlib
     address_hash = hashlib.sha256(address.strip().lower().encode()).hexdigest()[:16]
     conn = get_db(db_path)
     row = conn.execute(
@@ -106,9 +108,12 @@ def geocode(address: str, maps_api_key: str) -> Optional[tuple[float, float]]:
     if not maps_api_key:
         return None
     url = "https://maps.googleapis.com/maps/api/geocode/json"
-    r = requests.get(url, params={"address": address, "key": maps_api_key}, timeout=10)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(url, params={"address": address, "key": maps_api_key}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except requests.RequestException:
+        return None
     if data.get("status") == "OK" and data.get("results"):
         loc = data["results"][0]["geometry"]["location"]
         return loc["lat"], loc["lng"]
@@ -137,15 +142,18 @@ def travel_time_minutes(
         dep_param = int(departure_time.timestamp())
 
     url = "https://maps.googleapis.com/maps/api/distancematrix/json"
-    r = requests.get(url, params={
-        "origins": f"{origin[0]},{origin[1]}",
-        "destinations": f"{destination[0]},{destination[1]}",
-        "mode": "driving",
-        "departure_time": dep_param,
-        "key": maps_api_key,
-    }, timeout=10)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(url, params={
+            "origins": f"{origin[0]},{origin[1]}",
+            "destinations": f"{destination[0]},{destination[1]}",
+            "mode": "driving",
+            "departure_time": dep_param,
+            "key": maps_api_key,
+        }, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except requests.RequestException:
+        return DEGRADED_TRAVEL_MIN
     try:
         element = data["rows"][0]["elements"][0]
         if element["status"] == "OK":
@@ -183,7 +191,6 @@ def bridge_penalty(origin: tuple[float, float], destination: tuple[float, float]
 # ── Clustering ────────────────────────────────────────────────────────────────
 
 def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
-    import math
     R = 6371
     lat1, lng1 = math.radians(a[0]), math.radians(a[1])
     lat2, lng2 = math.radians(b[0]), math.radians(b[1])
@@ -228,9 +235,9 @@ def calculate_route_delta(
     stops: list of {coords, start_dt, end_dt, patient_id}
     """
     # Build ordered route: home → stops → home
-    route = [{"coords": home_coords, "start_dt": window_start, "end_dt": window_start, "patient_id": "home"}]
+    route = [{"coords": home_coords, "start_dt": window_start, "end_dt": window_start, "patient_id": "home", "name": ""}]
     route += stops
-    route.append({"coords": home_coords, "start_dt": window_end, "end_dt": window_end, "patient_id": "home"})
+    route.append({"coords": home_coords, "start_dt": window_end, "end_dt": window_end, "patient_id": "home", "name": ""})
 
     slots = []
 
@@ -272,6 +279,7 @@ def calculate_route_delta(
             "cluster_match": cluster_match,
             "flag": delta > FLAG_THRESHOLD_MINUTES,
             "position": i,
+            "prev_name": route[i].get("name", ""),
         })
 
     slots.sort(key=lambda s: s["delta_minutes"])
@@ -312,7 +320,6 @@ if __name__ == "__main__":
     # Pseudonymize + geocode new address
     pid, coords = pseudonymize(data["address"], db_path)
     if not coords:
-        import hashlib
         ahash = hashlib.sha256(data["address"].strip().lower().encode()).hexdigest()[:16]
         coords = geocode(data["address"], maps_key)
         if coords:
@@ -330,7 +337,6 @@ if __name__ == "__main__":
     for s in data.get("stops", []):
         spid, scoords = pseudonymize(s["location"], db_path)
         if not scoords:
-            import hashlib
             ahash = hashlib.sha256(s["location"].strip().lower().encode()).hexdigest()[:16]
             scoords = geocode(s["location"], maps_key)
             if scoords:
@@ -343,6 +349,7 @@ if __name__ == "__main__":
                 "start_dt": to_dt(s["start"]),
                 "end_dt":   to_dt(s["end"]),
                 "patient_id": spid,
+                "name": s.get("name", ""),
             })
 
     slots = calculate_route_delta(coords, 60, stops, home, window_start, window_end, maps_key)
@@ -356,6 +363,7 @@ if __name__ == "__main__":
             "cluster":       slot["cluster"],
             "cluster_match": slot["cluster_match"],
             "flag":          slot["flag"],
+            "prev_name":     slot.get("prev_name", ""),
         })
 
     output = {"slots": result, "degraded": degraded}
