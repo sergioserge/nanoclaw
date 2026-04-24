@@ -74,6 +74,7 @@ Run from `/root/nanoclaw/`.
 mkdir -p groups/whatsapp_physio_assistant_prd/data
 cp groups/whatsapp_physio_assistant/CLAUDE.md groups/whatsapp_physio_assistant_prd/CLAUDE.md
 cp groups/whatsapp_physio_assistant/data/.env groups/whatsapp_physio_assistant_prd/data/.env
+cp groups/whatsapp_physio_assistant/data/oauth_flow.py groups/whatsapp_physio_assistant_prd/data/oauth_flow.py
 ```
 
 **2. Copy client credentials into prod folder:**
@@ -86,7 +87,7 @@ cp <client_token.json>       groups/whatsapp_physio_assistant_prd/data/token.jso
 **3. Create prod config.json:**
 ```bash
 # calendarId = client's calendar ID (from handover.md)
-# homeCoords = client's home address coords (same or updated)
+# homeCoords = client's home address coords (geocode from maps.google.com)
 cat > groups/whatsapp_physio_assistant_prd/data/config.json << 'EOF'
 {
   "calendarId": "<client_calendar_id>",
@@ -95,6 +96,7 @@ cat > groups/whatsapp_physio_assistant_prd/data/config.json << 'EOF'
 }
 EOF
 ```
+⚠ Replace `homeCoords` with the therapist's actual home address coordinates — the placeholder (`50.9333, 6.9500`) is Cologne city center and will produce wrong routing until updated.
 
 **4. Copy physio.db from dev (geocache + patient mappings):**
 ```bash
@@ -103,6 +105,7 @@ cp groups/whatsapp_physio_assistant/data/physio.db \
 chown nanoclaw:nanoclaw groups/whatsapp_physio_assistant_prd/data/physio.db
 chmod 600 groups/whatsapp_physio_assistant_prd/data/physio.db
 ```
+*(One-time initial copy only — dev → prd. After handover the direction reverses: copy prd → dev for realistic testing, never dev → prd. See sync table below.)*
 
 **5. Create a WhatsApp group for the client co-pilot and find its JID:**
 ```bash

@@ -39,7 +39,7 @@ Extract address and time preference from the message. Default appointment durati
 
 ### 2. Load config
 ```python
-import json, os
+import json
 config = json.load(open('/workspace/group/data/config.json'))
 calendar_id = config['calendarId']
 home_coords = config['homeCoords']
@@ -81,8 +81,9 @@ events = service.events().list(
 verfuegbar = [e for e in events if e.get('summary','').lower() == 'verfügbar']
 if not verfuegbar:
     return "Kein verfügbarer Tag gefunden."
-window_start = verfuegbar[0]['start']['dateTime']
-window_end   = verfuegbar[0]['end']['dateTime']
+# Calendar API returns full ISO datetimes; routing.py expects "HH:MM"
+window_start = verfuegbar[0]['start']['dateTime'][11:16]  # e.g. "2026-04-22T08:00:00+02:00" → "08:00"
+window_end   = verfuegbar[0]['end']['dateTime'][11:16]
 ```
 
 ### 5. Extract stops (NEVER read description field)
@@ -94,18 +95,12 @@ for e in events:
     # Extract only what routing needs — never touch e['description']
     location = e.get('location', '')
     if location:
-        # Calendar API returns full ISO datetimes; routing.py expects "HH:MM"
         stops.append({
             'name':     e.get('summary', ''),   # patient name — for display only
             'location': location,
-            'start': e['start']['dateTime'][11:16],  # e.g. "2026-04-22T09:00:00+02:00" → "09:00"
+            'start': e['start']['dateTime'][11:16],  # "HH:MM"
             'end':   e['end']['dateTime'][11:16],
         })
-```
-Also extract window times as HH:MM:
-```python
-window_start = verfuegbar[0]['start']['dateTime'][11:16]
-window_end   = verfuegbar[0]['end']['dateTime'][11:16]
 ```
 
 ### 6. Calculate route delta
