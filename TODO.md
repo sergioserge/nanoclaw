@@ -2,7 +2,7 @@
 
 ## From code review (2026-04-24)
 
-- [ ] `clear_stale_session.sh` — verify `sessions` table schema matches what script expects; rewrite SQL to use parameterised queries not shell interpolation
+- [x] `clear_stale_session.sh` — verify `sessions` table schema matches what script expects; rewrite SQL to use parameterised queries not shell interpolation (2026-04-24)
 - [x] `organizer.py` — commit typo fix (`unssortiertFolderId` → `unsortiertFolderId`) and `prev_name` routing.py change (2026-04-24)
 - [ ] `routing.py` — wrap `requests.get` in `try/except RequestException` for graceful degradation when Maps API is transient
 - [ ] `routing.py` — move `import hashlib` / `import math` to top-level imports
