@@ -296,7 +296,7 @@ if __name__ == "__main__":
     input_json: {
       "address": "Venloer Str. 42, Köln",
       "day_iso": "2026-04-22",
-      "stops": [{"location": "...", "start": "HH:MM", "end": "HH:MM"}],
+      "stops": [{"name": "...", "location": "...", "start": "HH:MM", "end": "HH:MM"}],
       "window_start": "08:00",
       "window_end": "18:00",
       "home_coords": {"lat": 50.9333, "lng": 6.9500},

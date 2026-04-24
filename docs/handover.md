@@ -133,6 +133,14 @@ print('Updated:', cfg['calendarId'], cfg['homeCoords'])
   chown nanoclaw:nanoclaw /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
   chmod 640 /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
   ```
+- [ ] Copy dev geocache database to prd (avoids re-geocoding all existing patient addresses):
+  ```bash
+  cp groups/whatsapp_physio_assistant/data/physio.db \
+     groups/whatsapp_physio_assistant_prd/data/physio.db
+  chown nanoclaw:nanoclaw groups/whatsapp_physio_assistant_prd/data/physio.db
+  chmod 600 groups/whatsapp_physio_assistant_prd/data/physio.db
+  ```
+  *(One-time only. After handover, sync direction reverses: copy prd → dev for testing, never dev → prd.)*
 - [ ] Verify Calendar API:
   ```bash
   python3 -c "
@@ -194,8 +202,10 @@ After linking, the client's groups sync into the DB. Have the client send any me
 - [ ] Register the prd group with that JID:
   ```bash
   sqlite3 /root/nanoclaw/store/messages.db \
-    "INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, requires_trigger)
-     VALUES ('<JID>', 'Physio Assistant', 'whatsapp_physio_assistant_prd', '@Bob', datetime('now'), 0);"
+    "INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
+     VALUES ('<JID>', 'Physio Assistant', 'whatsapp_physio_assistant_prd', '@Bob', datetime('now'),
+       '{\"additionalMounts\":[{\"hostPath\":\"/root/nanoclaw/.claude/skills/physio-routing\",\"containerPath\":\"physio-routing\",\"readonly\":true}]}',
+       0, 0);"
   ```
 - [ ] Restart NanoClaw to pick up the new group:
   ```bash
@@ -245,7 +255,7 @@ cp /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/credentials.json \
    /root/nanoclaw/groups/document_organizer/data/credentials.json
 ```
 
-### 3.2 Create Drive Folder Structure
+### 3.3 Create Drive Folder Structure
 
 ⚠ Run only once. Re-running creates a second "Document Organizer" tree.
 

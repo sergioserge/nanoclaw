@@ -87,7 +87,7 @@ Every session must begin with the audit in Section 8 of the implementation guide
 Do not write or modify any skill code until all audit checks pass.
 
 ### P2: Calendar Targeting
-- ALWAYS use calendarId from groups/physio-copilot/data/config.json.
+- ALWAYS use calendarId from groups/whatsapp_physio_assistant/data/config.json.
 - NEVER use calendarId='primary'.
 - Verfugbar block = hard booking window. No Verfugbar = day unavailable.
 - Recurring event instances are independent. Never modify recurrence rules.
@@ -105,6 +105,6 @@ Do not write or modify any skill code until all audit checks pass.
 
 ### P5: Fork Discipline
 - Never modify src/ directly. All physio code lives in:
-  .claude/skills/physio-routing/ and groups/physio-copilot/
+  .claude/skills/physio-routing/ and groups/whatsapp_physio_assistant/
 - Commit all changes with descriptive messages. Git history = audit log.
 - Before any git push, verify .env is in .gitignore.

@@ -111,7 +111,7 @@ sqlite3 store/messages.db "SELECT jid, name FROM chats ORDER BY last_message_tim
 ```bash
 sqlite3 store/messages.db "
 INSERT INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
-VALUES ('<PROD_GROUP_JID>', 'Physio Assistant', 'whatsapp_physio_assistant_prd', '0', datetime('now'),
+VALUES ('<PROD_GROUP_JID>', 'Physio Assistant', 'whatsapp_physio_assistant_prd', '@Bob', datetime('now'),
   '{\"additionalMounts\":[{\"hostPath\":\"/root/nanoclaw/.claude/skills/physio-routing\",\"containerPath\":\"physio-routing\",\"readonly\":true}]}',
   0, 0);
 "

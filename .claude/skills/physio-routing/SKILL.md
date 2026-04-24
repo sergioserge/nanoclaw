@@ -127,13 +127,13 @@ Input JSON:
 Use this exact format:
 ```
 Bevor: Müller
-Slot 1: Dienstag 09:30 | Cluster: Köln-West ✓
+Slot 1: Dienstag 09:30 | +12 min | Cluster: Köln-West ✓
 Bevor: Schmidt
-Slot 2: Dienstag 14:00 | Kein Cluster-Match
+Slot 2: Dienstag 14:00 | +28 min | Kein Cluster-Match
 Bevor: Weber
-Slot 3: Mittwoch 10:00 | Cluster: Köln-West ✓
+Slot 3: Mittwoch 10:00 | +8 min  | Cluster: Köln-West ✓
 
-⚠ Hinweis: Montag 08:15 — Nicht empfohlen.
+⚠ Hinweis: Montag 08:15 würde +71 min Fahrzeit bedeuten. Nicht empfohlen.
 
 Welchen Slot möchtest du buchen? (1, 2 oder 3)
 ```
