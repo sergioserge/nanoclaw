@@ -100,6 +100,13 @@ print('Updated:', cfg['calendarId'], cfg['homeCoords'])
 "
   ```
   *(Get the lat/lng from maps.google.com or geocode the address. The current placeholder is Cologne city center — routing is wrong until this is set.)*
+- [ ] Create the Maps API key file for the prd group (routing runs in degraded mode without this):
+  ```bash
+  echo "GOOGLE_MAPS_API_KEY=<key from .env>" \
+    > /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
+  chown nanoclaw:nanoclaw /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
+  chmod 640 /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
+  ```
 - [ ] Verify Calendar API:
   ```bash
   python3 -c "

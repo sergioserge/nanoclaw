@@ -15,3 +15,4 @@
 - [x] `SKILL.md` — add explicit hard rule: never access `documents.db` directly; never call Google API directly; all operations must go through `organizer.py` (2026-04-24)
 - [x] `organizer.py` `list_inbox` — add pagination (Google Drive returns max 100 per page; inbox with >100 files silently drops the rest) (2026-04-24)
 - [ ] Run actual inbox sort — inbox was never processed by the proper workflow; both April 23 runs bypassed it
+- [ ] Create `groups/whatsapp_physio_assistant_prd/data/.env` with `GOOGLE_MAPS_API_KEY` before handover (same key as dev, owned by nanoclaw, chmod 640)
