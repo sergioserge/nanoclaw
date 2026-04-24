@@ -1,6 +1,6 @@
 ---
 name: physio-routing
-description: Mobile Physio booking optimization for Cologne. Activates when the co-pilot sends a new client address with a time preference. Reads the Google Calendar, calculates travel-efficient appointment slots, and returns ranked suggestions. Also handles creating calendar events when asked.
+description: Mobile Physio booking optimization for Cologne. Activates when the co-pilot sends a new client address with a time preference. Reads the Google Calendar, calculates travel-efficient appointment slots, and returns ranked suggestions. Creates the calendar event only after the co-pilot confirms a slot by replying "1", "2", or "3".
 ---
 
 # Physio Routing Skill
@@ -13,11 +13,12 @@ All files live at `/workspace/group/data/`:
 - `credentials.json` — Google OAuth client credentials
 - `token.json` — OAuth token (read/write calendar access)
 - `config.json` — `calendarId`, `homeCoords`, `timezone`
+- `.env` — `GOOGLE_MAPS_API_KEY`
 - `physio.db` — SQLite patient_mapping table (pseudonymization)
 
 **Never** pass real patient names, addresses, or event descriptions to any LLM. Patient names and addresses may be written to Google Calendar (that is their intended store) but must never reach the Google Maps API or any other external service. Use `routing.py` for pseudonymization before any geocoding call.
 
-Google Maps API key: read from `.env` as `GOOGLE_MAPS_API_KEY`. If not set, skip distance calculation and return slots based on calendar gaps only (degraded mode).
+Google Maps API key: read from `/workspace/group/data/.env` as `GOOGLE_MAPS_API_KEY`. If not set, routing.py skips distance calculation and returns slots based on calendar gaps only (degraded mode).
 
 ## Trigger
 
@@ -38,10 +39,15 @@ Extract address and time preference from the message. Default appointment durati
 
 ### 2. Load config
 ```python
-import json
+import json, os
 config = json.load(open('/workspace/group/data/config.json'))
 calendar_id = config['calendarId']
 home_coords = config['homeCoords']
+# Read Maps API key from .env
+maps_api_key = ''
+for line in open('/workspace/group/data/.env').read().splitlines():
+    if line.startswith('GOOGLE_MAPS_API_KEY='):
+        maps_api_key = line.split('=', 1)[1].strip()
 ```
 
 ### 3. Fetch Calendar for target day
@@ -89,6 +95,7 @@ for e in events:
     location = e.get('location', '')
     if location:
         stops.append({
+            'name':     e.get('summary', ''),   # patient name — for display only
             'location': location,
             'start': e['start']['dateTime'],
             'end':   e['end']['dateTime'],
@@ -98,7 +105,7 @@ for e in events:
 ### 6. Calculate route delta
 Run `routing.py` via subprocess or import directly:
 ```bash
-python3 /workspace/project/.claude/skills/physio-routing/routing.py '<json_input>'
+python3 /workspace/extra/physio-routing/routing.py '<json_input>'
 ```
 
 Input JSON:
@@ -106,11 +113,11 @@ Input JSON:
 {
   "address": "<new client address>",
   "day_iso": "2026-04-22",
-  "stops": [{"location": "...", "start": "HH:MM", "end": "HH:MM"}],
+  "stops": [{"name": "...", "location": "...", "start": "HH:MM", "end": "HH:MM"}],
   "window_start": "HH:MM",
   "window_end": "HH:MM",
   "home_coords": {"lat": 50.9333, "lng": 6.9500},
-  "maps_api_key": "<from env or empty string>",
+  "maps_api_key": "<GOOGLE_MAPS_API_KEY from .env or empty string>",
   "db_path": "/workspace/group/data/physio.db"
 }
 ```
@@ -119,20 +126,24 @@ Input JSON:
 
 Use this exact format:
 ```
-Slot 1: Dienstag 09:30 | +12 min Fahrzeit | Cluster: Köln-West ✓
-Slot 2: Dienstag 14:00 | +28 min Fahrzeit | Kein Cluster-Match
-Slot 3: Mittwoch 10:00 | +8 min Fahrzeit  | Cluster: Köln-West ✓
+Bevor: Müller
+Slot 1: Dienstag 09:30 | Cluster: Köln-West ✓
+Bevor: Schmidt
+Slot 2: Dienstag 14:00 | Kein Cluster-Match
+Bevor: Weber
+Slot 3: Mittwoch 10:00 | Cluster: Köln-West ✓
 
-⚠ Hinweis: Montag 08:15 würde +71 min Fahrzeit bedeuten. Nicht empfohlen.
+⚠ Hinweis: Montag 08:15 — Nicht empfohlen.
 
 Welchen Slot möchtest du buchen? (1, 2 oder 3)
 ```
 
 Rules:
+- Each slot is preceded by `Bevor: <prev_name>` where `prev_name` comes from routing.py output. If `prev_name` is empty (slot is first in the day), omit the line.
 - Show top 1–3 slots sorted by delta ascending. Aim for at least 2 whenever the calendar allows.
 - Add ✓ if cluster_match is true
 - Add ⚠ flag line if any slot exceeds 60 min delta
-- **Always flag routing violations** (Rhine crossing penalty, cluster mismatch) — even if the co-pilot chooses that slot anyway. State the cost explicitly (e.g. "+25 min Brückenstrafe"). Never silently accept an override.
+- **Always flag routing violations** (Rhine crossing penalty, cluster mismatch) — even if the co-pilot chooses that slot anyway. Never silently accept an override.
 - If maps_api_key is missing, note "Routenberechnung ohne Verkehrsdaten (kein API-Key)"
 - **NEVER create the calendar event here.** Stop and wait for the co-pilot to reply "1", "2", or "3".
 
@@ -184,15 +195,8 @@ service.events().insert(calendarId=config['calendarId'], body={
 ✅ Termin eingetragen: <Name>, <Datum> <Uhrzeit>–<Endzeit>
 ```
 
-## Installing Python dependencies
-
-If google-api-python-client is not available in the container, install it:
-```bash
-pip install --quiet google-api-python-client google-auth requests
-```
-
 ## GDPR Rules (non-negotiable)
-- NEVER log, store, or forward real patient names or addresses outside the local DB
+- Patient names (event summaries) may appear in the slot output shown to the co-pilot — this is intentional. They must NEVER be passed to Google Maps API or any other external service.
 - `event['description']` is read locally only — never passed to any API or LLM
 - patient_mapping in physio.db is the only persistent store for address data
 - All geocoding uses the pseudonymized patient_id as the reference label in logs

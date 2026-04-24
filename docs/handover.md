@@ -4,6 +4,18 @@ Three phases. Only Phase 2 requires physical presence (WhatsApp QR scan). Phases
 
 ---
 
+## What the Client Needs
+
+**Software:** Nothing to install. A browser (Chrome or Edge) is enough for all client-side steps.
+
+**Accounts the client must have before Phase 1:**
+- Google account: `lange@mobile-physiotherapie.koeln` — must be able to log in and pass 2FA
+- Anthropic account: create at console.anthropic.com if they don't have one yet (any Google login works)
+
+**Sergej needs:** SSH access to the VPS. All VPS commands below run in a terminal on Sergej's machine, not the client's.
+
+---
+
 ## Group Folder Reference
 
 | Group | Folder | Purpose |
@@ -30,13 +42,16 @@ cp groups/whatsapp_physio_assistant/data/token.json \
    groups/whatsapp_physio_assistant/data/token.dev.json
 ```
 
-### 1.1 Client: Claude Subscription + Token
+### 1.1 Client: Anthropic API Key
 
-- [ ] Client has an active Claude.ai subscription
-- [ ] Client installs Claude Code CLI from claude.ai/code
-- [ ] Client runs `claude setup-token` on their machine → sends the token to Sergej
+The client does this in a browser — no installation required.
 
-### 1.2 Client: Google Cloud Setup
+- [ ] Open console.anthropic.com → log in (create account if needed)
+- [ ] Add a payment method if prompted (Settings → Billing)
+- [ ] Go to API Keys → **Create new secret key** → name it "Physio Assistant" → copy it
+- [ ] Send the key to Sergej via Signal or WhatsApp — **not email**
+
+### 1.2 Client: Google Cloud Setup + Bot Calendar
 
 The client does this independently, or guided via screen share. They need to be logged into GCP as `lange@mobile-physiotherapie.koeln`.
 
@@ -47,6 +62,17 @@ The client does this independently, or guided via screen share. They need to be 
 - [ ] Create OAuth credentials: APIs & Services → Credentials → Create Credentials → OAuth client ID → type: **Desktop App** → download as `credentials.json`
 - [ ] Add `lange@mobile-physiotherapie.koeln` as test user: APIs & Services → OAuth consent screen → Test users → Add users
 - [ ] Client sends `credentials.json` to Sergej
+
+**Create the bot calendar (safety guardrail):**
+
+The bot must never write to the therapist's existing calendar until it is confirmed reliable. Instead, Bob writes all new appointments to a dedicated "Physio Bot" calendar. The client sees both calendars overlaid in Google Calendar. The existing calendar is read-only as far as the bot is concerned.
+
+- [ ] Client opens calendar.google.com → logged in as `lange@mobile-physiotherapie.koeln`
+- [ ] Left sidebar → **Other calendars** → **+** → **Create new calendar**
+- [ ] Name it **"Physio Bot"**, leave everything else default → **Create calendar**
+- [ ] Note the calendar ID (Settings → click "Physio Bot" → scroll to "Calendar ID") — send to Sergej alongside `credentials.json`
+
+⚠ The routing code currently reads availability only from `calendarId`. Before going live, `routing.py` must be updated to also check the existing main calendar for freebusy, so Bob sees real availability even though it writes elsewhere. This is a required code change before the client's calendar is switched to prod.
 
 ### 1.3 Sergej: Upload Credentials + Run OAuth
 
@@ -92,14 +118,14 @@ for c in service.calendarList().list().execute()['items']:
 import json
 path = '/root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/config.json'
 with open(path) as f: cfg = json.load(f)
-cfg['calendarId'] = 'PASTE_CALENDAR_ID_HERE'
+cfg['calendarId'] = 'PASTE_BOT_CALENDAR_ID_HERE'  # the 'Physio Bot' calendar, NOT the main calendar
 cfg['homeCoords'] = {'lat': PASTE_LAT, 'lng': PASTE_LNG}  # geocode the therapist's actual home address
 cfg.pop('note', None)
 with open(path, 'w') as f: json.dump(cfg, f, indent=2)
 print('Updated:', cfg['calendarId'], cfg['homeCoords'])
 "
   ```
-  *(Get the lat/lng from maps.google.com or geocode the address. The current placeholder is Cologne city center — routing is wrong until this is set.)*
+  *(Use the **"Physio Bot" calendar ID** from step 1.2 — not the primary calendar. The primary calendar is the real one; it must not be touched until the bot is confirmed reliable. Get lat/lng from maps.google.com. The current placeholder is Cologne city center — routing is wrong until this is set.)*
 - [ ] Create the Maps API key file for the prd group (routing runs in degraded mode without this):
   ```bash
   echo "GOOGLE_MAPS_API_KEY=<key from .env>" \

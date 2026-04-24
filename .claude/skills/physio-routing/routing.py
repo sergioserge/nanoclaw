@@ -201,10 +201,12 @@ def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def identify_cluster(coords: tuple[float, float]) -> Optional[str]:
+    best, best_dist = None, float("inf")
     for name, anchor in COLOGNE_CLUSTERS.items():
-        if _haversine_km(coords, (anchor["lat"], anchor["lng"])) <= CLUSTER_RADIUS_KM:
-            return name
-    return None
+        d = _haversine_km(coords, (anchor["lat"], anchor["lng"]))
+        if d <= CLUSTER_RADIUS_KM and d < best_dist:
+            best, best_dist = name, d
+    return best
 
 
 def dominant_cluster(stops: list[dict]) -> Optional[str]:

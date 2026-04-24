@@ -1,182 +1,153 @@
 # Dev / Prod Setup
 
-## Why This Approach
+## Overview
 
-Switching credentials via file swapping and NanoClaw restarts is fragile and takes prod offline during development. Instead, we register two NanoClaw groups simultaneously — dev and prod run in parallel, each reading from their own credential folder. No swapping, no restarts, no downtime.
+Dev and prod run as two parallel NanoClaw groups on the same VPS. No credential swapping, no restarts, no downtime when switching.
+
+- **Dev** = Sergej's WhatsApp group → Sergej's calendar → `whatsapp_physio_assistant/`
+- **Prod** = client co-pilot's WhatsApp group → client's calendar → `whatsapp_physio_assistant_prd/`
+
+The current active setup (`whatsapp_physio_assistant`) is dev. Prod is created at handover.
 
 ---
 
-## Before Setup (Historical Context)
-
-Originally the setup split data and runtime across two folders, with data inaccessible inside the container:
+## Current State (Dev — fully operational)
 
 ```
 groups/
-├── whatsapp_physio_assistant/   ← active NanoClaw group (CLAUDE.md + logs only)
-│   └── CLAUDE.md
-│
-└── physio-copilot/              ← data folder (not mounted in container — credentials unreachable)
+└── whatsapp_physio_assistant/       ← dev group (Sergej's WhatsApp)
+    ├── CLAUDE.md
     └── data/
-        ├── credentials.json
-        ├── token.json
-        ├── config.json
-        └── physio.db
+        ├── credentials.json         ← Sergej's GCP OAuth app
+        ├── token.json               ← Sergej's Google OAuth token
+        ├── config.json              ← Sergej's calendarId, homeCoords, timezone
+        ├── physio.db
+        └── .env                     ← GOOGLE_MAPS_API_KEY
 ```
-
-Steps 1 and 2 below resolved this. `physio-copilot/data/` still exists as a reference copy but is no longer the active source.
 
 ---
 
-## Target Structure (Dev + Prod)
-
-Prod keeps its existing folder name (`whatsapp_physio_assistant`). Dev gets a new parallel group. Data lives inside each group folder so it's accessible inside the container at `/workspace/group/data/`.
+## Target State (Dev + Prod)
 
 ```
 groups/
-├── whatsapp_physio_assistant/       ← prod group (existing, unchanged)
-│   ├── CLAUDE.md                    ← symlink → ../shared/CLAUDE.md
+├── whatsapp_physio_assistant/       ← dev group (unchanged)
+│   ├── CLAUDE.md
 │   └── data/
-│       ├── credentials.json         ← client's GCP OAuth app
-│       ├── token.json               ← client's Google OAuth token
-│       ├── config.json              ← client's calendarId, homeCoords, timezone
-│       └── physio.db
-│
-├── whatsapp_physio_assistant_dev/   ← dev group (new)
-│   ├── CLAUDE.md                    ← symlink → ../shared/CLAUDE.md
-│   └── data/
-│       ├── credentials.json         ← Sergej's GCP OAuth app (or shared with prod)
+│       ├── credentials.json         ← Sergej's GCP OAuth app
 │       ├── token.json               ← Sergej's Google OAuth token
 │       ├── config.json              ← Sergej's calendarId, homeCoords, timezone
-│       └── physio.db
+│       ├── physio.db
+│       └── .env
 │
-└── shared/
-    └── CLAUDE.md                    ← single source of truth for Bob's instructions
+└── whatsapp_physio_assistant_prd/   ← prod group (created at handover)
+    ├── CLAUDE.md
+    └── data/
+        ├── credentials.json         ← client's GCP OAuth app
+        ├── token.json               ← client's Google OAuth token
+        ├── config.json              ← client's calendarId, homeCoords, timezone
+        ├── physio.db
+        └── .env                     ← same GOOGLE_MAPS_API_KEY (shared key, IP-restricted)
 ```
 
-**What differs between dev and prod:** `token.json`, `config.json` (calendarId + homeCoords), `physio.db`
+**What differs between dev and prod:** `credentials.json`, `token.json`, `config.json` (calendarId + homeCoords)
 
-**What is shared:** routing skill — `SKILL.md` + `routing.py` live at `.claude/skills/physio-routing/`, one copy mounted into every container. Routing constants are hard-coded in `routing.py`, not in `config.json`. `CLAUDE.md` shared via symlink to `groups/shared/CLAUDE.md`.
-
-Inside the container, credentials are accessible at `/workspace/group/data/`.
+**What is shared:** routing skill — `SKILL.md` + `routing.py` at `.claude/skills/physio-routing/`, mounted into every container via `containerConfig.additionalMounts`.
 
 ---
 
-## How Dev Triggering Works
+## How It Works
 
-Create a WhatsApp group with Sergej and Bob's number (the linked phone) and link it to `whatsapp_physio_assistant_dev`. The same WhatsApp session (one phone linked) serves both groups — NanoClaw routes messages based on which chat group they come from.
+The same WhatsApp session (one linked phone) serves both groups. NanoClaw routes messages based on which chat the message comes from.
 
-- Message `whatsapp_physio_assistant_dev` group → Bob reads `whatsapp_physio_assistant_dev/data/` → Sergej's calendar
-- Message `whatsapp_physio_assistant` group → Bob reads `whatsapp_physio_assistant/data/` → client's calendar
+- Message in Sergej's group → Bob reads `whatsapp_physio_assistant/data/` → Sergej's calendar
+- Message in client co-pilot's group → Bob reads `whatsapp_physio_assistant_prd/data/` → client's calendar
 
 ---
 
-## Setup Steps
+## Prod Setup Steps (run at handover)
 
 Run from `/root/nanoclaw/`.
 
-**1. Create the shared CLAUDE.md:** ✅ done on this VPS
+**1. Create the prod group folder:**
 ```bash
-mkdir -p groups/shared
-cp groups/whatsapp_physio_assistant/CLAUDE.md groups/shared/CLAUDE.md
-# Replace prod CLAUDE.md with symlink:
-ln -sf ../shared/CLAUDE.md groups/whatsapp_physio_assistant/CLAUDE.md
+mkdir -p groups/whatsapp_physio_assistant_prd/data
+cp groups/whatsapp_physio_assistant/CLAUDE.md groups/whatsapp_physio_assistant_prd/CLAUDE.md
+cp groups/whatsapp_physio_assistant/data/.env groups/whatsapp_physio_assistant_prd/data/.env
 ```
 
-**2. Move prod data into the group folder:** ✅ done on this VPS
+**2. Copy client credentials into prod folder:**
 ```bash
-mkdir -p groups/whatsapp_physio_assistant/data
-cp groups/physio-copilot/data/* groups/whatsapp_physio_assistant/data/
+# After completing handover.md credential steps:
+cp <client_credentials.json> groups/whatsapp_physio_assistant_prd/data/credentials.json
+cp <client_token.json>       groups/whatsapp_physio_assistant_prd/data/token.json
 ```
 
-**3. Create the dev group folder:**
+**3. Create prod config.json:**
 ```bash
-mkdir -p groups/whatsapp_physio_assistant_dev/data
-ln -s ../shared/CLAUDE.md groups/whatsapp_physio_assistant_dev/CLAUDE.md
+# calendarId = client's calendar ID (from handover.md)
+# homeCoords = client's home address coords (same or updated)
+cat > groups/whatsapp_physio_assistant_prd/data/config.json << 'EOF'
+{
+  "calendarId": "<client_calendar_id>",
+  "homeCoords": { "lat": 50.9333, "lng": 6.9500 },
+  "timezone": "Europe/Berlin"
+}
+EOF
 ```
 
-**4. Copy dev credentials (Sergej's) into dev folder:**
+**4. Copy physio.db from dev (geocache + patient mappings):**
 ```bash
-# Pre-handover: source is physio-copilot/data/ (still has Sergej's credentials)
-cp groups/physio-copilot/data/credentials.json groups/whatsapp_physio_assistant_dev/data/
-cp groups/physio-copilot/data/token.json groups/whatsapp_physio_assistant_dev/data/
-cp groups/physio-copilot/data/config.json groups/whatsapp_physio_assistant_dev/data/
-
-# Post-handover: source is the dev backups from handover.md (Step 1)
-# cp groups/physio-copilot/data/credentials.dev.json groups/whatsapp_physio_assistant_dev/data/credentials.json
-# cp groups/physio-copilot/data/token.dev.json groups/whatsapp_physio_assistant_dev/data/token.json
-
-# Verify calendarId is Sergej's:
-cat groups/whatsapp_physio_assistant_dev/data/config.json
+cp groups/whatsapp_physio_assistant/data/physio.db \
+   groups/whatsapp_physio_assistant_prd/data/physio.db
 ```
 
-**5. Register the dev group in NanoClaw:**
+**5. Create a WhatsApp group for the client co-pilot and find its JID:**
 ```bash
-# Create a WhatsApp group and add Bob's number (the linked phone) to it.
-# Pre-handover: Sergej's phone is linked, so use a second phone or WhatsApp account to create the group.
-# Post-handover: Sergej can create the group from his own phone since the client's phone is linked.
-# Then find the new group's JID:
 sqlite3 store/messages.db "SELECT jid, name FROM chats ORDER BY last_message_time DESC LIMIT 10;"
+```
 
-# Register it:
+**6. Register the prod group in NanoClaw:**
+```bash
 sqlite3 store/messages.db "
 INSERT INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
-VALUES ('<DEV_GROUP_JID>', 'Physio Dev', 'whatsapp_physio_assistant_dev', '@Bob', datetime('now'), NULL, 1, 0);
+VALUES ('<PROD_GROUP_JID>', 'Physio Assistant', 'whatsapp_physio_assistant_prd', '0', datetime('now'),
+  '{\"additionalMounts\":[{\"hostPath\":\"/root/nanoclaw/.claude/skills/physio-routing\",\"containerPath\":\"physio-routing\",\"readonly\":true}]}',
+  0, 0);
 "
 ```
 
-**6. Restart NanoClaw:**
+**7. Restart NanoClaw:**
 ```bash
-systemctl --user restart nanoclaw
+systemctl restart nanoclaw
 ```
 
-**7. Verify both groups respond independently:**
-- Send `@Bob test` to each group and confirm Bob responds
-- Full routing verification (calendar reads, slot suggestions) requires the physio-routing skill to be built first (Step 6 of the main setup)
+**8. Verify both groups respond independently:**
+- Send a booking request to each group and confirm Bob reads the correct calendar
 
 ---
 
-## Syncing Dev and Prod
+## Syncing Dev → Prod
 
-### The Challenge
-
-Not everything flows in the same direction. The classic assumption — dev changes flow to prod — breaks for data files where prod is the source of truth. Some files are environment-specific and must never be synced. Getting the direction wrong can overwrite real patient data or live credentials.
-
-**When reviewing this section, check:**
-- Is the direction correct for each file?
-- Are any new files introduced by skill changes missing from this table?
-- Is `physio.db` protected from accidental overwrite in the wrong direction?
-
-### Sync Direction Table
-
-| File | Direction | Reason |
-|------|-----------|--------|
-| `SKILL.md` + `routing.py` | dev → prod | code lives in dev, released to prod |
-| `CLAUDE.md` | shared via symlink | single source of truth, no sync needed |
-| `config.json` | **never** | all values are environment-specific (calendarId, homeCoords, timezone) |
-| `physio.db` | **prod → dev** | real patient mappings and geocache built in prod — copy to dev for realistic testing |
-| `token.json` | **never** | environment-specific Google OAuth |
+| File | Direction | Notes |
+|------|-----------|-------|
+| `SKILL.md` + `routing.py` | automatic | one shared copy at `.claude/skills/physio-routing/` |
+| `CLAUDE.md` | dev → prod (copy) | copy when Bob's instructions change |
+| `config.json` | **never** | environment-specific (calendarId, homeCoords) |
+| `physio.db` | prod → dev | copy prod → dev for realistic testing; never dev → prod |
+| `token.json` | **never** | environment-specific OAuth token |
 | `credentials.json` | **never** | environment-specific GCP app |
-| `store/auth/` | **never** | phone-specific WhatsApp session |
-| `store/messages.db` | prod → dev on demand | copy as snapshot when reproducing a prod issue |
+| `.env` | **never** | same key value, but each folder keeps its own copy |
+| `store/messages.db` | prod → dev (snapshot) | only when reproducing a prod issue |
 
-### Syncing Code (dev → prod)
-
-**CLAUDE.md** — automatically in sync via symlink. Edit `groups/shared/CLAUDE.md` once.
-
-**Routing skill** — automatically in sync. One file at `.claude/skills/physio-routing/`, mounted into all containers.
-
-**config.json** — never synced. All values (calendarId, homeCoords, timezone) are environment-specific. Routing constants (bridge penalty, thresholds, cluster rules) are hard-coded in `routing.py` per spec — not in config.json.
-
-### Syncing Data (prod → dev)
-
-**physio.db** — copy from prod to dev when you need realistic patient data for testing:
+### Syncing CLAUDE.md after instruction changes:
 ```bash
-cp /root/nanoclaw/groups/whatsapp_physio_assistant/data/physio.db \
-   /root/nanoclaw/groups/whatsapp_physio_assistant_dev/data/physio.db
+cp groups/whatsapp_physio_assistant/CLAUDE.md groups/whatsapp_physio_assistant_prd/CLAUDE.md
+```
+
+### Copying prod physio.db to dev for realistic testing:
+```bash
+cp groups/whatsapp_physio_assistant_prd/data/physio.db \
+   groups/whatsapp_physio_assistant/data/physio.db
 ```
 Never copy in the other direction — dev data is throwaway.
-
-**store/messages.db** — both groups share the same messages.db. To investigate a prod issue, take a snapshot before switching to dev testing:
-```bash
-cp /root/nanoclaw/store/messages.db /root/nanoclaw/store/messages.db.snapshot-$(date +%Y%m%d)
-```

@@ -2,10 +2,11 @@
 
 ## Bugs & Improvements
 
+- [ ] `routing.py` — read freebusy from both the "Physio Bot" calendar (calendarId) AND the therapist's primary calendar, so Bob sees real availability while writing only to the bot calendar (safety guardrail until bot is confirmed reliable)
 - [ ] `container-runner.ts` — long-term: run nanoclaw service under uid 1000 instead of root to avoid chmod 0o777 on sessions/IPC dirs
-- [ ] `identify_cluster` — document or fix first-match-wins behaviour (overlapping cluster radii, e.g. Mitte anchor is inside Süd radius)
+- [x] `identify_cluster` — fixed first-match-wins: now returns nearest cluster within radius, not first match (2026-04-24)
 - [ ] Run actual inbox sort — inbox was never processed by the proper workflow; both April 23 runs bypassed it
-- [ ] Create `groups/whatsapp_physio_assistant_prd/data/.env` with `GOOGLE_MAPS_API_KEY` before handover (same key as dev, owned by nanoclaw, chmod 640)
+- [x] Create `groups/whatsapp_physio_assistant_prd/data/.env` with `GOOGLE_MAPS_API_KEY` — already present, correct key and permissions (2026-04-24)
 
 ## Features
 
@@ -17,7 +18,7 @@
 
 ### Physio Routing
 
-*(none yet)*
+- [ ] **Subscription usage tracking** — NanoClaw uses a claude.ai subscription (not an API key), so quota cannot be queried via API headers. Options: (a) track tokens consumed locally per container run and store in SQLite, report remaining estimate against known plan limit; (b) surface a `/usage` command in WhatsApp that shows today's and this-week's token spend. No programmatic endpoint exists for remaining claude.ai quota — any limit must be hardcoded from the plan or tracked client-side.
 
 ---
 
