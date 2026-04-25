@@ -10,18 +10,13 @@ import {
   makeCacheableSignalKeyStore,
   normalizeMessageContent,
   useMultiFileAuthState,
+  proto,
 } from '@whiskeysockets/baileys';
 import type {
   GroupMetadata,
   WAMessageKey,
   WASocket,
-  proto as ProtoTypes,
 } from '@whiskeysockets/baileys';
-// proto is not statically analyzable as a named ESM export from this CJS module
-import { createRequire } from 'module';
-const { proto } = createRequire(import.meta.url)('@whiskeysockets/baileys') as {
-  proto: typeof ProtoTypes;
-};
 
 import {
   ASSISTANT_HAS_OWN_NUMBER,
@@ -65,7 +60,7 @@ export class WhatsAppChannel implements Channel {
   private flushing = false;
   private groupSyncTimerStarted = false;
   /** Cache of recently sent messages for retry requests (max 256 entries). */
-  private sentMessageCache = new Map<string, ProtoTypes.IMessage>();
+  private sentMessageCache = new Map<string, proto.IMessage>();
   /** Short-lived cache of phone-normalized group metadata for outbound sends. */
   private groupMetadataCache = new Map<
     string,
@@ -228,12 +223,8 @@ export class WhatsAppChannel implements Channel {
 
     this.sock.ev.on('creds.update', saveCreds);
 
-    this.sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
-      const lidUser = lid?.split('@')[0].split(':')[0];
-      if (lidUser && jid) {
-        this.setLidPhoneMapping(lidUser, jid);
-      }
-    });
+    // chats.phoneNumberShare removed in Baileys 7.x; LID→phone mapping is
+    // now handled internally by signalRepository.lidMapping (used in translateJid).
 
     this.sock.ev.on('messages.upsert', async ({ messages }) => {
       for (const msg of messages) {
