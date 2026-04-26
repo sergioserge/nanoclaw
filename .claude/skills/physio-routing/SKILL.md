@@ -67,13 +67,26 @@ creds = Credentials(
 )
 service = build('calendar', 'v3', credentials=creds)
 
-events = service.events().list(
-    calendarId=calendar_id,
-    timeMin=day_start_iso,   # e.g. "2026-04-22T00:00:00+02:00"
-    timeMax=day_end_iso,
-    singleEvents=True,
-    orderBy='startTime'
-).execute()['items']
+def _fetch_day_events(cal_id):
+    return service.events().list(
+        calendarId=cal_id,
+        timeMin=day_start_iso,   # e.g. "2026-04-22T00:00:00+02:00"
+        timeMax=day_end_iso,
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute().get('items', [])
+
+# Read from both the configured calendar (Physio Bot in prd) and the primary calendar.
+# In dev calendarId IS the primary — dedup by event id makes this safe with no behavior change.
+# In prd the primary holds the therapist's real appointments and Verfügbar block.
+bot_events = _fetch_day_events(calendar_id)
+primary_events = _fetch_day_events('primary')
+seen_ids = {e['id'] for e in bot_events}
+events = list(bot_events)
+for e in primary_events:
+    if e['id'] not in seen_ids:
+        events.append(e)
+events.sort(key=lambda e: e['start'].get('dateTime', e['start'].get('date', '')))
 ```
 
 ### 4. Find Verfügbar block

@@ -1,18 +1,26 @@
 # Handover: Dev → Prod
 
-Three phases. Only Phase 2 requires physical presence (WhatsApp QR scan). Phases 1 and 3 are fully remote.
+All steps are fully remote. No physical meeting required.
 
 ---
 
-## What the Client Needs
+## Overview
 
-**Software:** Nothing to install. A browser (Chrome or Edge) is enough for all client-side steps.
-
-**Accounts the client must have before Phase 1:**
-- Google account: `lange@mobile-physiotherapie.koeln` — must be able to log in and pass 2FA
-- Anthropic account: create at console.anthropic.com if they don't have one yet (any Google login works)
-
-**Sergej needs:** SSH access to the VPS. All VPS commands below run in a terminal on Sergej's machine, not the client's.
+| # | Task | Who | Why | After |
+|---|------|-----|-----|-------|
+| 1 | Fix skill — read events from both Physio Bot and primary calendar | Sergej/Bob | In prd, appointments live in the primary calendar. Without this fix Bob sees only Physio Bot events and misses the Verfügbar block — every booking attempt fails. | — |
+| 2 | Back up dev credentials on VPS | Sergej | Protects dev auth tokens if prd setup goes wrong — only safe to proceed if dev state is recoverable. | 1 |
+| 3 | Client creates Anthropic API key, sends to Sergej via Signal | Client | Moves Anthropic billing to the client; Sergej's dev key must not go into production. | — |
+| 4 | Client does GCP setup, creates "Physio Bot" calendar, sends credentials.json | Client | Gives Bob write access under the client's Google account. The dedicated bot calendar is a safety guardrail — Bob never touches the therapist's real calendar until proven reliable. | — |
+| 5 | Client sends home address to Sergej | Client | Needed to set accurate homeCoords in prd config.json. Wrong coords silently skew every routing calculation. | — |
+| 6 | Upload credentials.json to VPS, run OAuth, client clicks Allow | Sergej + Client | Generates token.json under the client's Google account so Bob can read and write their calendar. Requires a brief coordinated moment for the one-click OAuth. | 4 |
+| 7 | Configure prd config.json — calendarId, homeCoords, Maps API key | Sergej | Three values wrong by default; routing and calendar writes are broken until all three are correct. | 5, 6 |
+| 8 | Update Anthropic token in OneCLI on VPS | Sergej | Replaces Sergej's dev API key with the client's key so Anthropic costs go to the right account. | 3 |
+| 9 | Create WhatsApp group, add client and co-pilot | Sergej | Creates the production channel. Prd group is separate from dev so both can run in parallel during transition. | 2, 7, 8 |
+| 10 | Register prd group JID in NanoClaw DB | Sergej | NanoClaw ignores messages from unregistered groups. Client must send at least one message first so the JID appears in the DB. | 9 (client must have sent a message) |
+| 11 | End-to-end test — co-pilot sends booking, Bob responds | Both | Verifies Anthropic token, Calendar connection, and routing all work together. First real signal that prd is healthy. | 10 |
+| 12 | Document organizer activation | Sergej | Separate feature — kept out of main handover to avoid scope creep on launch day. | 11, separate session |
+| 13 | Final WhatsApp migration — re-link NanoClaw to client's number, client scans QR | Both | Makes the system fully independent of Sergej's phone. Deferred until stable — premature migration removes the safety net. | 12, once stable in prod |
 
 ---
 
@@ -26,13 +34,13 @@ Three phases. Only Phase 2 requires physical presence (WhatsApp QR scan). Phases
 
 ---
 
-## Phase 1 — Async Prep (Days Before the In-Person Session)
+## Phase 1 — Async Prep
 
-Do these before meeting the client. If anything here isn't done, the in-person session cannot proceed.
+Do all of this before Phase 2. Steps 1.1 and 1.2 can be done by the client independently at any time. Step 1.3 requires a 10-minute screen share after 1.1 and 1.2 are both complete.
 
 ### 1.0 Sergej: Back Up Dev Credentials
 
-Do this first, before anything else changes on the VPS.
+Do this first.
 
 ```bash
 cd /root/nanoclaw
@@ -55,34 +63,34 @@ The client does this in a browser — no installation required.
 
 The client does this independently, or guided via screen share. They need to be logged into GCP as `lange@mobile-physiotherapie.koeln`.
 
-- [ ] Client creates a GCP project at console.cloud.google.com
+- [ ] Create a GCP project at console.cloud.google.com
 - [ ] Enable **Google Calendar API**: APIs & Services → Library → search → Enable
 - [ ] Enable **Google Drive API**: APIs & Services → Library → search → Enable
   *(both now — avoids a second OAuth re-auth when the document organizer goes live)*
 - [ ] Create OAuth credentials: APIs & Services → Credentials → Create Credentials → OAuth client ID → type: **Desktop App** → download as `credentials.json`
 - [ ] Add `lange@mobile-physiotherapie.koeln` as test user: APIs & Services → OAuth consent screen → Test users → Add users
-- [ ] Client sends `credentials.json` to Sergej
+- [ ] Send `credentials.json` to Sergej
 
 **Create the bot calendar (safety guardrail):**
 
-The bot must never write to the therapist's existing calendar until it is confirmed reliable. Instead, Bob writes all new appointments to a dedicated "Physio Bot" calendar. The client sees both calendars overlaid in Google Calendar. The existing calendar is read-only as far as the bot is concerned.
+The bot must never write to the therapist's existing calendar until it is confirmed reliable. Bob writes all new appointments to a dedicated "Physio Bot" calendar. The client sees both overlaid in Google Calendar.
 
 - [ ] Client opens calendar.google.com → logged in as `lange@mobile-physiotherapie.koeln`
 - [ ] Left sidebar → **Other calendars** → **+** → **Create new calendar**
 - [ ] Name it **"Physio Bot"**, leave everything else default → **Create calendar**
-- [ ] Note the calendar ID (Settings → click "Physio Bot" → scroll to "Calendar ID") — send to Sergej alongside `credentials.json`
+- [ ] Settings → click "Physio Bot" → scroll to "Calendar ID" → send to Sergej alongside `credentials.json`
 
-⚠ The routing code currently reads availability only from `calendarId`. Before going live, `routing.py` must be updated to also check the existing main calendar for freebusy, so Bob sees real availability even though it writes elsewhere. This is a required code change before the client's calendar is switched to prod.
+⚠ Before going live, the physio-routing skill must read events from both the primary calendar and "Physio Bot" so Bob sees the therapist's real appointments, while still writing only to "Physio Bot". This is Overview item 1 — complete before starting the handover.
 
 ### 1.3 Sergej: Upload Credentials + Run OAuth
 
-The client must be available to approve the Google login (2FA) — this can be done via screen share.
+The client must be reachable for the OAuth click (one browser action — can be guided via WhatsApp or screen share).
 
-- [ ] Install Google API packages if not present (needed by oauth_flow.py):
+- [ ] Install Google API packages if not present:
   ```bash
   pip3 install --quiet google-auth google-api-python-client
   ```
-- [ ] Copy oauth_flow.py from dev to prd (not in git — must be copied manually):
+- [ ] Copy oauth_flow.py from dev to prd:
   ```bash
   cp groups/whatsapp_physio_assistant/data/oauth_flow.py \
      groups/whatsapp_physio_assistant_prd/data/oauth_flow.py
@@ -100,7 +108,7 @@ The client must be available to approve the Google login (2FA) — this can be d
   ```bash
   python3 /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/oauth_flow.py
   ```
-- [ ] Copy the printed URL → open in browser → log in as `lange@mobile-physiotherapie.koeln` → Allow → blank page = success
+- [ ] Copy the printed URL → send to client → client opens it, logs in as `lange@mobile-physiotherapie.koeln`, clicks Allow → blank page = success
 - [ ] Verify token was written:
   ```bash
   ls -la /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/token.json
@@ -123,22 +131,22 @@ for c in service.calendarList().list().execute()['items']:
 import json
 path = '/root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/config.json'
 with open(path) as f: cfg = json.load(f)
-cfg['calendarId'] = 'PASTE_BOT_CALENDAR_ID_HERE'  # the 'Physio Bot' calendar, NOT the main calendar
+cfg['calendarId'] = 'PASTE_BOT_CALENDAR_ID_HERE'  # the 'Physio Bot' calendar, NOT the primary calendar
 cfg['homeCoords'] = {'lat': PASTE_LAT, 'lng': PASTE_LNG}  # geocode the therapist's actual home address
 cfg.pop('note', None)
 with open(path, 'w') as f: json.dump(cfg, f, indent=2)
 print('Updated:', cfg['calendarId'], cfg['homeCoords'])
 "
   ```
-  *(Use the **"Physio Bot" calendar ID** from step 1.2 — not the primary calendar. The primary calendar is the real one; it must not be touched until the bot is confirmed reliable. Get lat/lng from maps.google.com. The current placeholder is Cologne city center — routing is wrong until this is set.)*
-- [ ] Create the Maps API key file for the prd group (routing runs in degraded mode without this):
+  *(Use the **"Physio Bot" calendar ID** from step 1.2. Get lat/lng from maps.google.com. The current placeholder is Cologne city center — routing is wrong until this is set.)*
+- [ ] Create the Maps API key file for the prd group:
   ```bash
   echo "GOOGLE_MAPS_API_KEY=<key from .env>" \
     > /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
   chown nanoclaw:nanoclaw /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
   chmod 640 /root/nanoclaw/groups/whatsapp_physio_assistant_prd/data/.env
   ```
-- [ ] Copy dev geocache database to prd (avoids re-geocoding all existing patient addresses):
+- [ ] Copy dev geocache database to prd:
   ```bash
   cp groups/whatsapp_physio_assistant/data/physio.db \
      groups/whatsapp_physio_assistant_prd/data/physio.db
@@ -169,42 +177,35 @@ print('OK:', result['summary'])
   onecli secrets create --name "Anthropic" --type anthropic --value <client-token>
   ```
 
-✓ **Phase 1 gate — verify before the in-person session:**
+✓ **Phase 1 gate — verify before Phase 2:**
 - Dev backup files (`credentials.dev.json`, `token.dev.json`) present in dev data dir
 - `token.json` present in prd data dir
 - Calendar API returns `OK: <calendar name>`
-- Prd `config.json` has no `note` field, correct `calendarId`, and real `homeCoords` (not `50.9333, 6.9500`)
+- Prd `config.json` has no `note` field, correct `calendarId` (Physio Bot), and real `homeCoords` (not `50.9333, 6.9500`)
 
 ---
 
-## Phase 2 — In-Person Session (WhatsApp)
+## Phase 2 — WhatsApp Setup (Fully Remote)
 
-⚠ **This is the only part that requires physical presence.** The client's phone must be present. All of Phase 1 must be complete before starting this.
+NanoClaw runs on Sergej's WhatsApp number. No QR scan by the client is needed. Sergej creates the group and adds the client and co-pilot.
 
-### 2.1 Link WhatsApp to Client's Phone
+### 2.1 Create the Prd WhatsApp Group
 
-- [ ] Clear existing WhatsApp session and restart NanoClaw:
-  ```bash
-  rm -rf /root/nanoclaw/store/auth/*
-  systemctl restart nanoclaw
-  ```
-- [ ] Watch logs for the QR code:
-  ```bash
-  journalctl -u nanoclaw -f
-  ```
-- [ ] Client scans QR: WhatsApp → three dots → Linked Devices → Link a Device
-- [ ] Confirm connection — NanoClaw logs should stop printing the QR and show "WhatsApp connected"
+On Sergej's phone:
 
-### 2.2 Register the Prd Group
+- [ ] Open WhatsApp → New Group
+- [ ] Add the client (`lange@mobile-physiotherapie.koeln` phone) and the co-pilot
+- [ ] Name the group e.g. **"Physio Assistant"** (can be renamed later)
+- [ ] Ask the client to send any message in the group so it syncs into NanoClaw
 
-After linking, the client's groups sync into the DB. Have the client send any message in their practice group, then:
+### 2.2 Register the Prd Group in NanoClaw
 
 - [ ] Find the group JID:
   ```bash
   sqlite3 /root/nanoclaw/store/messages.db \
     "SELECT jid, name FROM chats WHERE jid LIKE '%@g.us' ORDER BY last_message_time DESC LIMIT 5;"
   ```
-- [ ] Register the prd group with that JID:
+- [ ] Register the prd group:
   ```bash
   sqlite3 /root/nanoclaw/store/messages.db \
     "INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
@@ -212,35 +213,34 @@ After linking, the client's groups sync into the DB. Have the client send any me
        '{\"additionalMounts\":[{\"hostPath\":\"/root/nanoclaw/.claude/skills/physio-routing\",\"containerPath\":\"physio-routing\",\"readonly\":true}]}',
        0, 0);"
   ```
-- [ ] Restart NanoClaw to pick up the new group:
+- [ ] Restart NanoClaw:
   ```bash
   systemctl restart nanoclaw
   ```
 
 ### 2.3 Verify End-to-End
 
-- [ ] Client sends a test booking request in the group
+- [ ] Client or co-pilot sends a test booking request in the group
 - [ ] Bob responds with a routing suggestion — this also confirms the Anthropic token (Step 1.4) and the Calendar connection (Step 1.3)
 
-✓ **Phase 2 gate:** Bob responds correctly to a booking request from the client's WhatsApp group.
+✓ **Phase 2 gate:** Bob responds correctly to a booking request in the new group.
 
 ---
 
 ## Phase 3 — Document Organizer (Separate Session, When Feature Goes Live)
 
-This is a separate activation, not part of the main handover. Can be done remotely. Requires Phase 1 and Phase 2 to be complete.
+Can be done remotely. Requires Phase 1 and Phase 2 to be complete.
 
 ### 3.1 Register the Document Organizer WhatsApp Group
 
-The document organizer uses a separate WhatsApp group (e.g. the client's "My Office" or equivalent). After the Phase 2 phone swap, the old JID in the DB belongs to Sergej's WhatsApp and is no longer valid. Re-register it with the correct JID from the client's phone.
-
-- [ ] Have the client send a message in their document organizer group
+- [ ] Sergej creates a second WhatsApp group (or uses an existing one) and adds the client
+- [ ] Client sends any message in the group
 - [ ] Find the JID:
   ```bash
   sqlite3 /root/nanoclaw/store/messages.db \
     "SELECT jid, name FROM chats WHERE jid LIKE '%@g.us' ORDER BY last_message_time DESC LIMIT 5;"
   ```
-- [ ] Update the registered group:
+- [ ] Register the group:
   ```bash
   sqlite3 /root/nanoclaw/store/messages.db \
     "INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, requires_trigger)
@@ -290,4 +290,20 @@ EOF
 
 **Google token expired/revoked:** Re-run Phase 1.3 via SSH tunnel — no physical presence needed.
 
-**WhatsApp session expired or client gets a new phone:** Repeat Phase 2.1–2.2. The QR scan requires the phone — schedule a short call.
+**WhatsApp session expired:** Sergej re-scans the QR on his own phone — no client involvement needed.
+
+---
+
+## Future: Final WhatsApp Account Migration
+
+> ⚠ **Not part of this handover — to be done later, once the system is stable in production.**
+
+The current setup runs on Sergej's WhatsApp number. For the system to be fully independent of Sergej, NanoClaw needs to be re-linked to the client's existing WhatsApp number (`lange@mobile-physiotherapie.koeln` phone).
+
+This involves:
+1. Clearing the current WhatsApp session on the VPS
+2. Restarting NanoClaw to generate a new QR code
+3. Client scans the QR with their phone: WhatsApp → three dots → Linked Devices → Link a Device
+4. Re-creating all registered groups (Sergej's groups disappear; new groups are created from the client's account and JIDs updated in the NanoClaw DB)
+
+The QR scan requires the client's phone to be present — this is the one step that needs a short coordinated call (video or phone). Everything else can be done remotely by Sergej via SSH.
