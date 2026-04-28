@@ -109,6 +109,36 @@ def _move_in_drive(service, file_id, from_folder_id, to_folder_id):
     ).execute()
 
 
+# ── Staging helpers (full text never sent to Bob — stored locally only) ───────
+
+def _stage_full_text(file_id, full_text, db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute('''CREATE TABLE IF NOT EXISTS _staging (
+        file_id TEXT PRIMARY KEY,
+        full_text TEXT,
+        created_at TEXT
+    )''')
+    conn.execute(
+        "INSERT OR REPLACE INTO _staging VALUES (?, ?, datetime('now'))",
+        (file_id, full_text)
+    )
+    conn.commit()
+    conn.close()
+
+
+def _retrieve_staged_text(file_id, db_path):
+    if not Path(db_path).exists():
+        return ''
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        'SELECT full_text FROM _staging WHERE file_id = ?', (file_id,)
+    ).fetchone()
+    conn.execute('DELETE FROM _staging WHERE file_id = ?', (file_id,))
+    conn.commit()
+    conn.close()
+    return row[0] if row else ''
+
+
 # ── Actions ───────────────────────────────────────────────────────────────────
 
 def setup_drive(inp, data_dir):
@@ -227,6 +257,9 @@ def extract_text(inp, data_dir):
 
     content = service.files().get_media(fileId=file_id).execute()
 
+    db_path = f'{data_dir}/documents.db'
+    file_id = inp['file_id']
+
     if mime_type == 'application/pdf':
         try:
             import fitz
@@ -234,7 +267,8 @@ def extract_text(inp, data_dir):
             text = '\n'.join(page.get_text() for page in doc)
             if not text.strip():
                 return {'status': 'scanned_pdf', 'text': None}
-            return {'status': 'ok', 'text': text[:8000]}
+            _stage_full_text(file_id, text, db_path)
+            return {'status': 'ok', 'text': text[:4000]}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
@@ -243,7 +277,8 @@ def extract_text(inp, data_dir):
             import docx
             doc = docx.Document(io.BytesIO(content))
             text = '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
-            return {'status': 'ok', 'text': text[:8000]}
+            _stage_full_text(file_id, text, db_path)
+            return {'status': 'ok', 'text': text[:4000]}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
@@ -257,14 +292,17 @@ def extract_text(inp, data_dir):
                     row_str = '\t'.join(str(c) if c is not None else '' for c in row)
                     if row_str.strip():
                         rows.append(row_str)
-            return {'status': 'ok', 'text': '\n'.join(rows)[:8000]}
+            text = '\n'.join(rows)
+            _stage_full_text(file_id, text, db_path)
+            return {'status': 'ok', 'text': text[:4000]}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
     if mime_type == 'text/csv':
         try:
             text = content.decode('utf-8', errors='replace')
-            return {'status': 'ok', 'text': text[:8000]}
+            _stage_full_text(file_id, text, db_path)
+            return {'status': 'ok', 'text': text[:4000]}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
@@ -288,6 +326,7 @@ def move_file(inp, data_dir):
     summary = inp.get('summary', '')
     key_fields = inp.get('key_fields', {})
     tags = inp.get('tags', [])
+    full_text = _retrieve_staged_text(file_id, f'{data_dir}/documents.db')
 
     _move_in_drive(service, file_id, config['inboxFolderId'], folder_id)
 
@@ -300,13 +339,21 @@ def move_file(inp, data_dir):
         summary TEXT,
         key_fields TEXT,
         tags TEXT,
+        full_text TEXT,
         indexed_at TEXT
+        -- future: vector BLOB for semantic search via sqlite-vec
     )''')
+    # migration: add full_text column to existing DBs (idempotent)
+    try:
+        conn.execute('ALTER TABLE documents ADD COLUMN full_text TEXT')
+    except Exception:
+        pass
     conn.execute(
-        "INSERT OR REPLACE INTO documents VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+        "INSERT OR REPLACE INTO documents VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         (file_id, file_name, folder_name, summary,
          json.dumps(key_fields, ensure_ascii=False),
-         json.dumps(tags, ensure_ascii=False))
+         json.dumps(tags, ensure_ascii=False),
+         full_text)
     )
     conn.commit()
     conn.close()
@@ -347,9 +394,10 @@ def search(inp, data_dir):
            OR lower(summary) LIKE ?
            OR lower(tags) LIKE ?
            OR lower(key_fields) LIKE ?
+           OR lower(coalesce(full_text, '')) LIKE ?
         ORDER BY indexed_at DESC
         LIMIT 20
-    ''', (pattern, pattern, pattern, pattern)).fetchall()
+    ''', (pattern, pattern, pattern, pattern, pattern)).fetchall()
     conn.close()
 
     return {'results': [dict(r) for r in rows], 'count': len(rows)}

@@ -126,6 +126,8 @@ Returns one of:
 - `{"status": "too_large"}` → call `move_unsortiert` with `reason: "too_large"`
 - `{"status": "unsupported"}` → call `move_unsortiert` with `reason: "unsupported"`
 
+`text` is truncated to 4000 characters — use this for classification. The complete document text is written directly to a local staging table by `organizer.py` and is never sent to Bob.
+
 ### Step 5 — Classify (Bob's job — no organizer.py action)
 
 Pick the best matching folder from the Step 2 list by name. Determine:
@@ -216,4 +218,5 @@ pip install --quiet google-api-python-client google-auth PyMuPDF python-docx ope
 
 - Document text is processed locally and by Bob (LLM) for classification — this is internal business data, not patient PII
 - `documents.db` is the persistent index — never delete it without backing up
-- Raw file content is never stored on the VPS beyond the classification step
+- Bob only ever sees the first 4000 characters of each document; the complete text is written to a local staging table by `organizer.py` and transferred to `documents.db` during `move_file` — it never passes through Bob
+- Raw file content is not stored on the VPS beyond the extraction step

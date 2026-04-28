@@ -374,7 +374,10 @@ fi
 # fi
 
 # Check 3: OneCLI auth gateway reachable
-curl -sf --max-time 5 "$ONECLI_URL/" > /dev/null 2>&1 \
+# TCP-level check — agent containers have HTTP_PROXY pointed at OneCLI itself,
+# so an HTTP/curl probe to OneCLI would self-proxy and fail spuriously.
+# curl is also not in the agent image; use python socket.
+python3 -c "import socket; socket.create_connection(('host.docker.internal', 10254), timeout=5).close()" 2>/dev/null \
   || failures+=("OneCLI-Gateway nicht erreichbar")
 
 if [ ${#failures[@]} -eq 0 ]; then
