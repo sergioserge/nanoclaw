@@ -115,6 +115,43 @@ Ask the operator to send `@Bob ping` (or any test) in a **dev** group only — n
 tail -f logs/nanoclaw.log | grep -E 'Spawning container|Container completed'
 ```
 
+## Post-relink session recovery
+
+After a successful re-pair, **most chats auto-recover** their per-chat Signal Protocol sessions on the first message exchange. Older/larger groups can fail. Symptom on the affected user's phone: bot's outbound replies show as **"Waiting for this message..."** indefinitely, while `store/messages.db` confirms the bot is sending and receiving correctly.
+
+### Why
+
+Wiping `store/auth/` deletes per-chat Signal sessions. On the bot's first reply per group, it generates a fresh group **sender key** and ships an **SKDM** (Sender Key Distribution Message) to each recipient device via the point-to-point session. If one recipient's session was in a transient half-resynced state at that moment, the SKDM is lost — and Baileys reuses the established sender key on subsequent sends with no automatic redistribution. That recipient cannot decrypt any group message from the bot until the sender key is rotated.
+
+### Diagnostic
+
+```bash
+sqlite3 store/messages.db "SELECT datetime(timestamp,'localtime'), sender, substr(content,1,60) FROM messages WHERE chat_jid='<group-jid>' AND datetime(timestamp) > datetime('now','-30 minutes') ORDER BY timestamp DESC LIMIT 20;"
+```
+
+If both inbound user messages and outbound bot replies appear in the DB but the user reports not seeing replies, the bot is fine — the issue is recipient-side decryption.
+
+### Recovery options, ordered by intrusiveness
+
+| Option | Side | Visibility | Reliability | Notes |
+|---|---|---|---|---|
+| Force-quit + reopen WhatsApp on affected phone | Phone | Zero | Low | Try first |
+| Restart `nanoclaw` service | Bot | Zero | Low | Cheap to try |
+| Delete bot's sender-key file for the JID + restart | Bot | Zero | Medium-high | Forces sender-key rotation; fresh SKDM on next send |
+| Admin removes + re-adds affected user | Group | 2 system messages | High | Most reliable when bot-side options fail |
+| Delete chat locally on phone | Phone | Zero externally | High | Loses local message history for that chat |
+| Affected user leaves + rejoins | Group | 2 system messages | High | Same visibility as admin remove/re-add |
+
+### Forcing sender-key rotation from the bot side
+
+```bash
+systemctl stop nanoclaw
+mv store/auth/sender-key-<group-jid>* /tmp/
+systemctl start nanoclaw
+```
+
+Replace `<group-jid>` with the affected JID. On the next outbound message in that group, Baileys generates a new sender key and distributes a fresh SKDM to every current member-device.
+
 ## Failure modes
 
 | Symptom | Cause | Fix |
