@@ -18,7 +18,7 @@
 
 ### Physio
 
-- [ ] **List + delete appointments** — extend Bob beyond create-only. New intents: list appointments for natural-language date ranges (today, tomorrow, "diese Woche"); delete appointments by patient name with confirmation flow (multiple matches → numbered selection; single match → "Soll ich [Full Name] am [Date] um [Time] löschen?" → wait for "Ja"). Authorization: any sender in PRD group. GDPR: never expose `event['description']` or any clinical data. Prompted by Lange chat 2026-04-29: "Kannst du mir nicht sagen welche Termine ich morgen habe?"
+- [x] **List + delete appointments** — Bob now handles three intents (Booking, List, Delete). List uses dateparser for German date phrases, reads all calendars. Delete uses Calendar API `q=` server-side search on `writeCalendarId` only (refuses read-only calendars), confirmation flow with explicit "Ja". GDPR: description stripped at fetch time. All 7 DEV roundtrip tests passed. (2026-04-29)
 - [ ] **Persist pending-delete state across session timeout** — delete confirmation currently requires "Ja" within ~10 min (`clear_stale_session.sh` cron). Late replies are silently treated as off-topic ("Ich bin nur für Termine zuständig."). Either persist `pending_delete = {event_id, ttl}` in `physio.db` so late confirmations still resolve, or improve the user-facing message when an orphan "Ja" arrives. Identified during 2026-04-29 list+delete spec build.
 
 ### Document Organizer
