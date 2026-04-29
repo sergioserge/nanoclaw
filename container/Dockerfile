@@ -34,6 +34,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     google-auth \
     requests \
     pytz \
+    dateparser \
     PyMuPDF \
     python-docx \
     openpyxl
