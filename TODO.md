@@ -19,7 +19,7 @@
 ### Physio
 
 - [x] **List + delete appointments** — Bob now handles three intents (Booking, List, Delete). List uses dateparser for German date phrases, reads all calendars. Delete uses Calendar API `q=` server-side search on `writeCalendarId` only (refuses read-only calendars), confirmation flow with explicit "Ja". GDPR: description stripped at fetch time. All 7 DEV roundtrip tests passed. (2026-04-29)
-- [ ] **Persist pending-delete state across session timeout** — delete confirmation currently requires "Ja" within ~10 min (`clear_stale_session.sh` cron). Late replies are silently treated as off-topic ("Ich bin nur für Termine zuständig."). Either persist `pending_delete = {event_id, ttl}` in `physio.db` so late confirmations still resolve, or improve the user-facing message when an orphan "Ja" arrives. Identified during 2026-04-29 list+delete spec build.
+- [ ] **Persist pending-delete state across session timeout** — delete confirmation requires "Ja" within ~10 min (`clear_stale_session.sh` cron); after that, session state is wiped. SKILL.md now recognises orphan "Ja"/"Nein"/"1"/"2"/"3" and replies "Diese Antwort bezieht sich auf eine abgelaufene Anfrage — bitte erneut stellen." (cheap mitigation, shipped 2026-04-29). The real fix — persist `pending_delete = {event_id, ttl}` in `physio.db` so late confirmations still resolve — remains open.
 
 ### Document Organizer
 

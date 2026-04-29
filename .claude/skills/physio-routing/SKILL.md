@@ -31,6 +31,7 @@ Determine the intent before executing any workflow:
 | "lösche", "entferne", "cancel", "absagen", "streichen" + patient name | Delete |
 | Bare "1", "2", "3" after a slot suggestion in this session | Continue Booking confirmation |
 | Bare "Ja", "Nein", or a number after a delete prompt in this session | Continue Delete confirmation |
+| Bare "Ja", "Nein", "1", "2", "3" with **no** pending workflow in this session | Orphan confirmation — respond exactly: `Diese Antwort bezieht sich auf eine abgelaufene Anfrage — bitte erneut stellen.` and stop. Do NOT fall through to the general off-topic rejection. |
 
 If both an address and list/delete keywords appear, prefer **Booking**. If a list message has no date phrase, ask back: `Für welchen Zeitraum?`
 
