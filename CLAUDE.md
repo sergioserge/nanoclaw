@@ -85,6 +85,8 @@ The container buildkit caches the build context aggressively. `--no-cache` alone
 ### P1: Session Start
 Before writing or modifying any physio skill code, verify: routing.py runs without import errors, physio.db is accessible and the patient_mapping table exists, config.json has a non-placeholder calendarId and real homeCoords, and .env contains GOOGLE_MAPS_API_KEY.
 
+For handover/setup state (what's done, what's pending, calendar architecture), read `docs/handover.md` — single source of truth. Do not maintain a parallel state record in memory.
+
 ### P2: Calendar Targeting
 - ALWAYS use calendarId from groups/whatsapp_physio_assistant/data/config.json.
 - NEVER use calendarId='primary'.

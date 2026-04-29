@@ -7,6 +7,12 @@
 - [x] `identify_cluster` — fixed first-match-wins: now returns nearest cluster within radius, not first match (2026-04-24)
 - [ ] Run actual inbox sort — inbox was never processed by the proper workflow; both April 23 runs bypassed it
 - [x] Delete `groups/whatsapp_physio_assistant_prd/` and `docs/dev-prod-setup.md` — artifacts of an abandoned rename plan; production is `whatsapp_physio_assistant`, dev is `whatsapp_physio_assistant_dev` (2026-04-27)
+- [x] `config.json` + `SKILL.md` — split single `calendarId` into `writeCalendarId` (string) + `readCalendarIds` (array); skill loops over read IDs and dedupes by event id; supersedes the 2026-04-27 dual-read-with-`'primary'` pattern (2026-04-28)
+- [x] `config.json` (prd) — populate with pilot account values: `writeCalendarId = mobilephysiotherapie.pilot@gmail.com`, `readCalendarIds` includes `Therapeut Christian – Termine`, real homeCoords (Senefelderstraße 44); end-to-end verified via API dry-run + live WhatsApp test (2026-04-28)
+- [x] `SKILL.md` Step 7 — slot presentation format updated to day+date+time-range with explicit context sub-line ("Nach X endet Y, vor Z ab W"); dropped ambiguous `Bevor: <name>` header; promoted from Christian's feedback in 2026-04-28 chat (2026-04-28)
+- [x] `groups/whatsapp_physio_assistant/data/style_log.md` — created human-curated notepad for client communication-style feedback (not loaded by Bob); first entry: slot format promotion (2026-04-28)
+- [x] `docs/handover.md` — rewritten to reflect locked calendar architecture (split read/write, `Therapeut Christian – Termine` as the read source); dropped obsolete `info@` share + `Physio Bot` calendar creation steps; marked OAuth + dev backup as done (2026-04-28)
+- [ ] `SKILL.md` / data layer — distinguish "blocking" calendar events (Außendienst, STRABAG, Frankfurt-Tage) from routable patient appointments. Currently every non-Verfügbar event is treated as a stop, which produced a wrong slot proposal on 2026-04-28. Options: keyword block-list in Step 5, or a separate "blockers" calendar from Christian. Decision pending — see `groups/whatsapp_physio_assistant/data/style_log.md`.
 
 ## Features
 
